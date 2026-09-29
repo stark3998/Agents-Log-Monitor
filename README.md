@@ -4,11 +4,11 @@ A local real-time monitor for AI agent activity. Captures events from multiple a
 
 ## Supported sources
 
-| Source | Mechanism | Status |
-|---|---|---|
-| Claude Code | Push — HTTP hooks | ✓ Active by default |
-| Azure AI Foundry | Pull — Agent Service REST API | Enabled via `FOUNDRY_ENDPOINT` |
-| Copilot Studio | Pull — Dataverse OData API | Enabled via `DATAVERSE_ORG_URL` |
+| Source           | Mechanism                      | Status                           |
+| ---------------- | ------------------------------ | -------------------------------- |
+| Claude Code      | Push — HTTP hooks             | ✓ Active by default             |
+| Azure AI Foundry | Pull — Agent Service REST API | Enabled via`FOUNDRY_ENDPOINT`  |
+| Copilot Studio   | Pull — Dataverse OData API    | Enabled via`DATAVERSE_ORG_URL` |
 
 ## Quick start
 
