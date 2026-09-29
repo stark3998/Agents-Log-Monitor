@@ -1,3 +1,4 @@
+import '../src/env';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { govConfig } from '../src/governance/config';

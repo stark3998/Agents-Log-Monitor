@@ -17,10 +17,13 @@ const { app, Tray, Menu, shell } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { parseEnv } = require('util');
 
-const PORT = 4317;
 // Packaged builds ship unpacked (asar: false) so the server can run from resources/app.
 const ROOT = app.isPackaged ? app.getAppPath() : path.join(__dirname, '..');
+// Assigned in loadEnv() once the app name (and therefore userData) is final.
+let PORT = 4317;
+let ENV_FILE = null;
 
 let tray = null;
 let serverProc = null;
@@ -29,6 +32,46 @@ let quitting = false;
 let logStream = null;
 let adminLoginUrl = null;
 let openedAdminLogin = false;
+
+// ── Configuration (.env) ──────────────────────────────────────────────────────
+
+/**
+ * Same .env the server reads: AGENT_MONITOR_ENV_FILE if set (`none` disables), otherwise the repo root
+ * in development or the user-data folder (%APPDATA%\Agent Monitor\.env) for the installed app.
+ * Real environment variables win over the file; empty values are ignored.
+ */
+function loadEnv() {
+  const configured = (process.env.AGENT_MONITOR_ENV_FILE || '').trim();
+  if (/^(?:none|off|false|0)$/i.test(configured)) {
+    ENV_FILE = null;
+  } else if (configured) {
+    ENV_FILE = path.resolve(configured);
+  } else {
+    ENV_FILE = path.join(app.isPackaged ? app.getPath('userData') : ROOT, '.env');
+  }
+  if (ENV_FILE && fs.existsSync(ENV_FILE)) {
+    try {
+      const parsed = parseEnv(fs.readFileSync(ENV_FILE, 'utf8'));
+      for (const [key, value] of Object.entries(parsed)) {
+        if (key === 'AGENT_MONITOR_ENV_FILE' || value === '' || process.env[key] !== undefined) continue;
+        process.env[key] = value;
+      }
+    } catch (err) {
+      console.warn(`[env] could not read ${ENV_FILE}: ${err.message}`);
+    }
+  }
+  PORT = Number(process.env.PORT) || 4317;
+}
+
+function childEnv(extra) {
+  return {
+    ...process.env,
+    ...extra,
+    PORT: String(PORT),
+    // Point the server at the same file (or disable its own lookup) so both processes agree.
+    AGENT_MONITOR_ENV_FILE: ENV_FILE || 'none',
+  };
+}
 
 // ── Server lifecycle ──────────────────────────────────────────────────────────
 
@@ -40,20 +83,18 @@ function serverCommand() {
       cmd: process.execPath,
       args: [path.join(ROOT, 'dist', 'server.js')],
       shell: false,
-      env: {
-        ...process.env,
+      env: childEnv({
         ELECTRON_RUN_AS_NODE: '1',
-        PORT: String(PORT),
         AGENT_MONITOR_DB: process.env.AGENT_MONITOR_DB || path.join(dataDir, 'agent-monitor.db'),
         AGENT_MONITOR_PUBLIC: path.join(ROOT, 'public'),
-      },
+      }),
     };
   }
   return {
     cmd: 'npx',
     args: ['ts-node', path.join(ROOT, 'src', 'server.ts')],
     shell: process.platform === 'win32',
-    env: { ...process.env, PORT: String(PORT) },
+    env: childEnv({}),
   };
 }
 
@@ -203,6 +244,7 @@ function rebuildMenu() {
 
 app.setName('Agent Monitor');
 app.setAppUserModelId('com.agent-monitor');
+loadEnv();
 
 // Only one instance at a time
 if (!app.requestSingleInstanceLock()) {

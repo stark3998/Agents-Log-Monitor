@@ -6,6 +6,8 @@ export interface SystemGuardContext {
   port: number;
   dbPath: string;
   lanesDir: string;
+  /** The `.env` file the monitor loads its configuration from (null when disabled). */
+  envFile?: string | null;
 }
 
 export interface SystemGuardHit {
@@ -75,6 +77,7 @@ function sensitivePathKind(p: string, ctx: SystemGuardContext): string | null {
   if (isDbPath(p, ctx.dbPath)) return 'governance database';
   if (isHookConfigPath(p)) return 'governance hook configuration';
   if (isForwarderPath(p)) return 'governance hook forwarder';
+  if (ctx.envFile && norm(p) === norm(ctx.envFile)) return 'Agent Monitor configuration (.env)';
   return null;
 }
 

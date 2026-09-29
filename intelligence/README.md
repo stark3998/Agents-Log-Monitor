@@ -10,6 +10,8 @@ The implementation uses Microsoft Agent Framework for Python (`agent-framework` 
 
 ## Configuration
 
+In a source checkout, settings are read from the repo-root `.env` (see [`../.env.example`](../.env.example)); variables already set in the environment take precedence and empty values are ignored. Set `AGENT_MONITOR_ENV_FILE` to use another file or `none` to skip it. Installed wheels and containers use real environment variables only.
+
 | Variable | Default | Purpose |
 |---|---:|---|
 | `AZURE_OPENAI_ENDPOINT` | | Azure OpenAI-compatible Foundry endpoint. |

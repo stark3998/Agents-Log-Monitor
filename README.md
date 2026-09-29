@@ -84,36 +84,43 @@ How findings, risk and severity are computed: [docs/analytics.md](docs/analytics
 npm install
 npm run build
 
-# 2. Wire Claude Code governance hooks (and optionally Copilot CLI hooks)
+# 2. (Optional) Create your configuration file and edit it
+Copy-Item .env.example .env
+
+# 3. Wire Claude Code governance hooks (and optionally Copilot CLI hooks)
 .\install.ps1                 # or: .\install.ps1 -CopilotHooks
 
-# 3. Start the server
+# 4. Start the server
 .\start.ps1
 # → http://127.0.0.1:4317
 ```
 
 On first start, Copilot CLI sessions from the last 7 days (`COPILOT_CLI_IMPORT_DAYS`) are imported in the background. The dashboard fills in as the import runs.
 
+All settings live in a single [`.env`](.env.example) file in the repo root; see [Configuration](#configuration).
+
 ### Enable Azure AI Foundry
 
-```powershell
-$env:FOUNDRY_ENDPOINT   = "https://xxx.services.ai.azure.com/api/projects/myproject"
-$env:AZURE_CLIENT_ID     = "<client-id>"
-$env:AZURE_CLIENT_SECRET = "<secret>"
-$env:AZURE_TENANT_ID     = "<tenant-id>"
-.\start.ps1
+Add to `.env`, then restart the server:
+
+```ini
+FOUNDRY_ENDPOINT=https://xxx.services.ai.azure.com/api/projects/myproject
+AZURE_CLIENT_ID=<client-id>
+AZURE_CLIENT_SECRET=<secret>
+AZURE_TENANT_ID=<tenant-id>
 ```
 
 ### Enable Copilot Studio
 
-```powershell
-$env:DATAVERSE_ORG_URL   = "https://myorg.crm.dynamics.com"
-$env:AZURE_CLIENT_ID     = "<client-id>"
-$env:AZURE_CLIENT_SECRET = "<secret>"
-$env:AZURE_TENANT_ID     = "<tenant-id>"
+Add to `.env`, then restart the server:
+
+```ini
+DATAVERSE_ORG_URL=https://myorg.crm.dynamics.com
+AZURE_CLIENT_ID=<client-id>
+AZURE_CLIENT_SECRET=<secret>
+AZURE_TENANT_ID=<tenant-id>
 # Optional: filter to a single bot
-$env:COPILOT_BOT_ID      = "<bot-guid>"
-.\start.ps1
+COPILOT_BOT_ID=<bot-guid>
 ```
 
 The Entra ID app registration used for Copilot Studio must have an **Application User** in the Dataverse environment with the **Bot Transcript Viewer** security role.
@@ -170,10 +177,24 @@ npm run test:web     # UI unit tests (vitest + Testing Library)
 npm run electron:dev # Electron + ts-node
 ```
 
-Set `AGENT_MONITOR_DB` to use a different database file, and `PORT` to change the port.
+Set `AGENT_MONITOR_DB` to use a different database file, and `PORT` to change the port (in `.env` or the shell).
 
 ### Configuration
 
+Every component reads one `.env` file in the repo root: the server, the MCP stdio server, the MCP gateway, the Electron app, the Vite dev server and build, and the [intelligence service](intelligence/README.md). Start from the annotated template, which lists every supported variable:
+
+```powershell
+Copy-Item .env.example .env   # macOS/Linux: cp .env.example .env
+```
+
+- Variables already set in your shell win over `.env`. Empty values (`KEY=`) are ignored, so the built-in default applies.
+- Restart the process after you edit `.env`.
+- Set `AGENT_MONITOR_ENV_FILE` in the shell to use a different file, or `none` to skip it.
+- `.env` is git-ignored because it can hold secrets. Where you can, use `az login` or managed identity rather than `AZURE_CLIENT_SECRET` or API keys. `VITE_*` values are embedded in the built UI, so never put secrets in them.
+- Governance treats the active `.env` like the lanes and database: agent attempts to write to it are denied (`system.self.files`).
+- Docker and Azure Container Apps don't read `.env`. Set real environment variables there instead (see [infra/](infra/README.md)).
+
+The most common settings:
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `4317` | HTTP/WebSocket port (bound to 127.0.0.1) |
@@ -182,6 +203,9 @@ Set `AGENT_MONITOR_DB` to use a different database file, and `PORT` to change th
 | `AGENT_MONITOR_RULES` | `agent-monitor.rules.json` next to the DB | Heuristics tuning file |
 | `REDACT_PAYLOADS` | `secrets` | `off`, `secrets` or `all` |
 | `COPILOT_CLI_ENABLED` / `COPILOT_HOME` / `COPILOT_CLI_IMPORT_DAYS` | on / `~/.copilot` / `7` | Copilot CLI log collector |
+| `AGENT_MONITOR_ENV_FILE` | `<repo>/.env` | Configuration file to load (`none` disables); shell only |
+
+See [.env.example](.env.example) for governance, judge, Prompt Shields, cloud sync, Entra ID, alerts, gateway, web UI and intelligence settings.
 
 ### Storage
 
@@ -194,7 +218,7 @@ npm run electron:pack    # unpacked app in release/win-unpacked (quick smoke tes
 npm run electron:build   # NSIS installer in release/
 ```
 
-The tray app runs the compiled server on **Electron's embedded Node**, so end users don't need Node.js installed. The app ships unpacked (`asar: false`) so the server and its dependencies load straight from `resources/app`. The database, rules file and `server.log` are stored in the app's user-data folder (`%APPDATA%\Agent Monitor`); open it from the tray with **Open Data Folder**. Fonts are bundled, so the UI works offline.
+The tray app runs the compiled server on **Electron's embedded Node**, so end users don't need Node.js installed. The app ships unpacked (`asar: false`) so the server and its dependencies load straight from `resources/app`. The database, rules file and `server.log` are stored in the app's user-data folder (`%APPDATA%\Agent Monitor`); open it from the tray with **Open Data Folder**. To configure the installed app, put a `.env` file in that folder (same format as [.env.example](.env.example)) and restart it from the tray. In development (`npm run electron:dev`) the repo-root `.env` is used, and `PORT` from it sets the port the tray opens. Fonts are bundled, so the UI works offline.
 
 ### Hook enforcement surfaces
 

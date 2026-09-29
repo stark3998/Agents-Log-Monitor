@@ -1,3 +1,4 @@
+import '../env';
 import { getConfiguredPdpToken, loadGatewayConfig } from './config';
 import { PdpClient, type PdpTokenProvider } from './pdp-client';
 import { GatewayProxy } from './proxy';

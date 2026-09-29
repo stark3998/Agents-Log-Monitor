@@ -1,3 +1,4 @@
+import '../../env';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { initDb } from '../../db';
 import { LOCAL_PRINCIPAL } from '../auth';

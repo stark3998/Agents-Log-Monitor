@@ -10,6 +10,7 @@ const ctx = {
   port: 4317,
   dbPath: 'C:\\Users\\me\\AppData\\Local\\agent-monitor\\agent-monitor.db',
   lanesDir: 'C:\\repo\\lanes',
+  envFile: 'C:\\repo\\.env',
 };
 
 function req(over: Partial<ActionRequest> = {}): ActionRequest {
@@ -102,13 +103,14 @@ describe('systemGuard', () => {
     expect(systemGuard(req({ args: { command: f.command } }), f, ctx)).toBeNull();
   });
 
-  it('denies writes to lanes, database sidecars, hook configs, and forwarders', () => {
+  it('denies writes to lanes, database sidecars, hook configs, forwarders, and the .env file', () => {
     const paths = [
       'C:\\repo\\lanes\\default.yaml',
       'C:\\Users\\me\\AppData\\Local\\agent-monitor\\agent-monitor.db-wal',
       'C:\\Users\\me\\.claude\\settings.local.json',
       'C:\\repo\\.github\\hooks\\agent-governance.json',
       'C:\\repo\\scripts\\copilot-hook-forward.ps1',
+      'c:/repo/.env',
     ];
     for (const p of paths) {
       const f = feat({ category: 'WRITE', toolName: 'Edit', canonicalTool: 'edit', paths: [p] });
@@ -119,6 +121,7 @@ describe('systemGuard', () => {
   it('does not deny ordinary source edits or reads of governance files', () => {
     expect(systemGuard(req({ toolName: 'Edit' }), feat({ category: 'WRITE', toolName: 'Edit', paths: ['C:\\repo\\src\\app.ts'] }), ctx)).toBeNull();
     expect(systemGuard(req({ toolName: 'Read' }), feat({ category: 'READ', toolName: 'Read', paths: ['C:\\repo\\lanes\\default.yaml'] }), ctx)).toBeNull();
+    expect(systemGuard(req({ toolName: 'Edit' }), feat({ category: 'WRITE', toolName: 'Edit', paths: ['C:\\repo\\.env.example'] }), ctx)).toBeNull();
   });
 
   it('denies Windows and POSIX process-kill shapes for monitor runtimes', () => {

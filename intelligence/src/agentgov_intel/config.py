@@ -1,10 +1,37 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 GuardianAuthority = Literal["recommend", "contain", "autonomous"]
+
+
+def _env_file() -> Path | None:
+    """Same resolution as the Node server: AGENT_MONITOR_ENV_FILE (``none`` disables), else ``<repo root>/.env``."""
+    configured = os.getenv("AGENT_MONITOR_ENV_FILE", "").strip()
+    if configured:
+        return None if re.fullmatch(r"none|off|false|0", configured, re.IGNORECASE) else Path(configured).resolve()
+    package_root = Path(__file__).resolve().parents[2]  # intelligence/ in a source checkout
+    if (package_root / "pyproject.toml").is_file():
+        return package_root.parent / ".env"
+    return None
+
+
+def load_env_file() -> Path | None:
+    """Load the project ``.env`` into ``os.environ``. Real variables win; empty values are ignored."""
+    path = _env_file()
+    if path is None or not path.is_file():
+        return None
+    from dotenv import dotenv_values
+
+    for key, value in dotenv_values(path).items():
+        if key == "AGENT_MONITOR_ENV_FILE" or not value or key in os.environ:
+            continue
+        os.environ[key] = value
+    return path
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -46,4 +73,5 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    load_env_file()
     return Settings()

@@ -3,6 +3,7 @@ import path from 'path';
 import { redactDeep, redactString } from '../analytics/redact';
 import { riskRank } from '../analytics/risk';
 import { DB_PATH } from '../db';
+import { resolveEnvFile } from '../env-path';
 import { extractFeatures, type ActionFeatures } from './features';
 import { systemGuard, type SystemGuardContext } from './system-guard';
 import type { JudgeInput, RuleEvaluation } from './contracts';
@@ -91,6 +92,7 @@ function systemGuardContext(): SystemGuardContext {
     port: Number(process.env.PORT ?? 4317),
     dbPath: DB_PATH,
     lanesDir: govConfig.lanesDir || path.join(process.cwd(), 'lanes'),
+    envFile: resolveEnvFile(),
   };
 }
 function applyMode(c: Candidate, mode: LaneMode): { verdict: Verdict; effectiveVerdict: Verdict; wouldDeny: boolean } {
