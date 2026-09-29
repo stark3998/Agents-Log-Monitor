@@ -1,0 +1,67 @@
+﻿id: coding-agent
+version: 1
+name: Coding agent lane
+priority: 100
+appliesTo:
+  surfaces: [claude-code, copilot-cli, vscode, copilot-cloud-agent]
+  agents: ['*']
+  repos: ['*']
+  users: ['*']
+purpose: Help a developer read, modify, build, and test code in the current repository while avoiding credentials and destructive operations.
+dos:
+  - Read and edit source files in the workspace.
+  - Run tests, builds, linters, and local development commands.
+  - Search documentation and code.
+never:
+  - Read or exfiltrate secrets from home, cloud, SSH, environment, or credential stores.
+  - Contact metadata endpoints or internal admin endpoints.
+  - Perform destructive disk, repository, or security-tool changes without approval.
+rules:
+  deny:
+    - id: credential-paths
+      path: ['~/.ssh/**', '~/.aws/**', '~/.azure/**', '**/.env', '**/.aws/credentials', '**/.ssh/id_*', '**/.kube/config', '**/.git-credentials']
+    - id: metadata-endpoints
+      domain: ['169.254.169.254', 'metadata.google.internal', '100.100.100.200']
+    - id: critical-risks
+      risk: [rm-root, pipe-to-shell, disk-wipe, disable-security, secret-egress]
+    - id: credential-access
+      description: Reads credential material or dumps secrets (lane never-rule)
+      risk: [cred-read, secret-dump]
+  judge:
+    - id: exec-network-mcp
+      category: [EXEC, NETWORK, MCP]
+    - id: medium-plus-risk
+      risk: [medium]
+  allow:
+    - id: read-workspace
+      category: [READ]
+      path: ['${workspace}/**']
+    - id: search-tools
+      tool: [Grep, Glob, grep, glob, rg]
+  approve:
+    - id: publish-or-push
+      risk: [publish, force-push]
+defaultVerdict: allow
+mode: observe
+failMode:
+  default: closed
+  READ: open
+approval:
+  channels: [native, dashboard, teams]
+  timeoutSec: 120
+judge:
+  model: fast
+  escalateBelow: 0.72
+  humanBelow: 0.45
+  dataPolicy: redacted
+limits:
+  actionsPerMin: 120
+  maxSubagents: 5
+  maxDepth: 2
+  tokenBudget: 2000000
+  loopThreshold: 8
+  maxSessionMinutes: 480
+promptShields:
+  enabled: true
+  scan: [NETWORK, MCP]
+  taintTtlActions: 20

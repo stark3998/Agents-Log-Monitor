@@ -1,0 +1,185 @@
+# CI: build, test and scan everything. Runs on PRs, on pushes to non-main branches, and is
+# called by deploy.yml (workflow_call) so main is only deployed after the same checks pass.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main] # main runs CI via deploy.yml -> workflow_call
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  PYTHON_VERSION: "3.12"
+  TERRAFORM_VERSION: "1.16.2"
+  # electron is a devDependency (desktop build only) — never download its binary in CI.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+jobs:
+  # -------------------------------------------------------------------------------------------
+  node:
+    name: Node — build & test (server + web)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      # Root postinstall runs `npm --prefix web install`.
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm run test:web
+
+  # -------------------------------------------------------------------------------------------
+  sdk-ts:
+    name: TypeScript SDK — test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Test packages/sdk-ts
+        working-directory: packages/sdk-ts
+        if: hashFiles('packages/sdk-ts/package.json') != ''
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+          npm run build --if-present
+          npm test
+
+  # -------------------------------------------------------------------------------------------
+  python:
+    name: Python — ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [intelligence, packages/sdk-python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install & pytest
+        if: hashFiles(format('{0}/pyproject.toml', matrix.project)) != ''
+        working-directory: ${{ matrix.project }}
+        run: |
+          python -m pip install --upgrade pip
+          # Prefer a dev/test extra when the project defines one.
+          pip install -e ".[dev]" || pip install -e ".[test]" || pip install -e .
+          pip install pytest
+          pytest -q
+
+  # -------------------------------------------------------------------------------------------
+  terraform:
+    name: Terraform — fmt, validate, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - run: terraform fmt -check -recursive -diff
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      # Offline plan tests with mocked providers (no Azure credentials).
+      - run: terraform test
+
+  # -------------------------------------------------------------------------------------------
+  iac-scan:
+    name: IaC scan — tfsec + Checkov
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: tfsec
+        uses: aquasecurity/tfsec-action@b466648d6e39e7c75324f25d83891162a721f2d6 # v1.0.3
+        with:
+          working_directory: infra/terraform
+          # Justified exceptions live inline (#tfsec:ignore / #checkov:skip) next to the resource.
+          additional_args: --minimum-severity MEDIUM
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf # v12.1347.0
+        with:
+          directory: infra
+          framework: terraform
+          config_file: infra/.checkov.yaml
+          quiet: true
+
+  # -------------------------------------------------------------------------------------------
+  trivy-fs:
+    name: Trivy — filesystem (deps + secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          skip-dirs: node_modules,web/node_modules,dist,public
+
+  # -------------------------------------------------------------------------------------------
+  docker:
+    name: Docker — build ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: control-plane
+            context: .
+            file: Dockerfile
+          - image: mcp-gateway
+            context: .
+            file: Dockerfile.gateway
+          - image: intelligence
+            context: intelligence
+            file: intelligence/Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build (no push)
+        if: matrix.image != 'intelligence' || hashFiles('intelligence/pyproject.toml') != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          tags: agentgov/${{ matrix.image }}:${{ github.sha }}
+          load: true
+          push: false
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: Trivy image scan (CRITICAL)
+        if: matrix.image != 'intelligence' || hashFiles('intelligence/pyproject.toml') != ''
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: agentgov/${{ matrix.image }}:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

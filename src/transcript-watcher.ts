@@ -1,6 +1,8 @@
 import fs from 'fs';
-import { broadcast } from './broadcast';
-import { get, insert } from './db';
+import { get, insert, run } from './db';
+import { ANALYSIS_VERSION } from './analytics/analyze';
+import { REDACTION_MODE, redactDeep } from './analytics/redact';
+import { notifyInserted } from './pipeline';
 
 interface WatchEntry {
   sessionId: string;
@@ -132,20 +134,11 @@ function emitEvent(
   payloadObj: Record<string, unknown>,
 ): void {
   const id = insert(
-    `INSERT INTO events (session_id, agent_id, event_type, raw_event_name, payload, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [sessionId, agentId, eventType, rawEventName, JSON.stringify(payloadObj), occurredAt],
+    `INSERT INTO events (session_id, agent_id, event_type, raw_event_name, payload, created_at, capture_channel, analysis_version, redaction)
+     VALUES (?, ?, ?, ?, ?, ?, 'log', ?, ?)`,
+    [sessionId, agentId, eventType, rawEventName, JSON.stringify(redactDeep(payloadObj)), occurredAt, ANALYSIS_VERSION, REDACTION_MODE],
   );
-  broadcast({
-    id,
-    sessionId,
-    agentId,
-    eventType,
-    rawEventName,
-    toolName: null,
-    status: null,
-    durationMs: null,
-    payload: payloadObj,
-    occurredAt,
-  });
+  run('UPDATE sessions SET last_activity_at = ? WHERE id = ? AND (last_activity_at IS NULL OR last_activity_at < ?)',
+    [occurredAt, sessionId, occurredAt]);
+  notifyInserted(id, sessionId, occurredAt);
 }

@@ -19,6 +19,16 @@ export interface NormalizedEvent {
   model?: string;            // e.g. "claude-sonnet-4-6"
   payload: unknown;          // original payload, kept for the detail drawer
   occurredAt: string;        // ISO timestamp
+  /** How the event was captured: push hook, tailed local log, or remote poll. */
+  captureChannel?: 'hook' | 'log' | 'poll';
+  /** Full text used for sensitive-data detection when `payload` is a trimmed copy. Never stored. */
+  scanText?: string;
+  /** Autonomy level observed at this event (1 supervised · 2 assisted · 3 autonomous). */
+  autonomyLevel?: number;
+  /** Explicit policy outcome carried by the source (e.g. a permission denial). */
+  policy?: { outcome: 'blocked' | 'denied' | 'warned' | 'prompted' | 'approved'; label: string };
+  /** Session working directory, when the source reports it outside `payload.cwd`. */
+  cwd?: string;
 }
 
 export interface Collector {
@@ -33,6 +43,8 @@ export interface PollableCollector extends Collector {
   pollIntervalMs: number;
   /** Fetch new events since the last poll. Must be idempotent — events with externalId are deduped by the DB. */
   poll(): Promise<NormalizedEvent[]>;
+  /** When true after a poll, the registry polls again immediately (used for chunked backfills). */
+  hasBacklog?(): boolean;
 }
 
 export function isPollable(c: Collector): c is PollableCollector {

@@ -1,0 +1,75 @@
+﻿id: default
+version: 1
+name: Default governance lane
+priority: -1000
+appliesTo:
+  surfaces: ['*']
+  agents: ['*']
+  repos: ['*']
+  users: ['*']
+purpose: Baseline safety for newly discovered or unassigned agents.
+dos:
+  - Read and search files inside the current workspace.
+  - Run low-risk local development commands.
+never:
+  - Read or transmit credential files or secrets.
+  - Contact cloud metadata endpoints.
+  - Run destructive shell or security-disabling commands.
+rules:
+  deny:
+    - id: rm-root
+      risk: [rm-root]
+    - id: pipe-to-shell
+      risk: [pipe-to-shell]
+    - id: disk-wipe
+      risk: [disk-wipe]
+    - id: disable-security
+      risk: [disable-security]
+    - id: secret-egress
+      risk: [secret-egress]
+    - id: metadata-endpoints
+      domain: ['169.254.169.254', 'metadata.google.internal', '100.100.100.200']
+    - id: credential-paths
+      path: ['~/.ssh/**', '~/.aws/**', '~/.azure/**', '**/.env', '**/.aws/credentials', '**/.ssh/id_*', '**/.kube/config', '**/.git-credentials']
+    - id: credential-access
+      description: Reads credential material or dumps secrets (lane never-rule)
+      risk: [cred-read, secret-dump]
+  judge:
+    - id: active-tools
+      category: [EXEC, NETWORK, MCP]
+    - id: medium-risk
+      risk: [medium]
+  allow:
+    - id: read-workspace
+      category: [READ]
+      path: ['${workspace}/**']
+    - id: search-tools
+      tool: [Grep, Glob, grep, glob, rg]
+  approve: []
+defaultVerdict: allow
+mode: observe
+failMode:
+  default: closed
+  READ: open
+approval:
+  channels: [native, dashboard, teams]
+  timeoutSec: 120
+judge:
+  model: fast
+  escalateBelow: 0.7
+  humanBelow: 0.45
+  dataPolicy: redacted
+limits:
+  actionsPerMin: 120
+  maxSubagents: 5
+  maxDepth: 2
+  tokenBudget: 2000000
+  loopThreshold: 8
+  maxSessionMinutes: 480
+promptShields:
+  enabled: true
+  scan: [NETWORK, MCP]
+  taintTtlActions: 20
+alerts:
+  high: [teams, webhook]
+  critical: [teams, email, webhook]

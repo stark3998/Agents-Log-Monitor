@@ -1,0 +1,32 @@
+{
+  "pdpUrl": "http://127.0.0.1:4317",
+  "pdpTokenEnv": "AGENT_GATEWAY_PDP_TOKEN",
+  "port": 4127,
+  "host": "127.0.0.1",
+  "failModeDefault": "closed",
+  "hideDeniedTools": true,
+  "identityHeaders": {
+    "agentId": "x-agent-id",
+    "agentName": "x-agent-name",
+    "surface": "x-agent-surface",
+    "sessionId": "x-session-id",
+    "user": "x-user"
+  },
+  "upstreams": [
+    {
+      "name": "filesystem",
+      "transport": "stdio",
+      "command": "node",
+      "args": ["C:\\path\\to\\filesystem-mcp-server.js"]
+    },
+    {
+      "name": "remote",
+      "transport": "http",
+      "url": "https://mcp.contoso.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${REMOTE_MCP_TOKEN}"
+      },
+      "toolPrefix": "remote"
+    }
+  ]
+}

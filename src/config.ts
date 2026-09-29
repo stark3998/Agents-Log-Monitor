@@ -1,4 +1,11 @@
 export const config = {
+  copilotCli: {
+    // Tails $COPILOT_HOME/session-state/*/events.jsonl. On by default when the folder exists.
+    enabled: process.env.COPILOT_CLI_ENABLED !== 'false' && process.env.COPILOT_CLI_ENABLED !== '0',
+    home: process.env.COPILOT_HOME || undefined,
+    importDays: Number(process.env.COPILOT_CLI_IMPORT_DAYS ?? 7),
+    pollIntervalMs: Number(process.env.COPILOT_CLI_POLL_INTERVAL_MS ?? 2000),
+  },
   foundry: {
     enabled: !!process.env.FOUNDRY_ENDPOINT,
     // Full project endpoint, e.g. https://xxx.services.ai.azure.com/api/projects/myproject

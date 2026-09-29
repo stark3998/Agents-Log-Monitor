@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-governance"
+version = "0.1.0"
+description = "Governance SDK for custom AI agents calling the Agent Governance PDP"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Agent Governance" }]
+dependencies = ["httpx>=0.27,<1"]
+
+[project.optional-dependencies]
+agent-framework = ["agent-framework"]
+semantic-kernel = ["semantic-kernel"]
+langchain = ["langchain-core"]
+openai-agents = ["openai-agents"]
+azure = ["azure-identity"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_governance"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

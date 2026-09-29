@@ -1,0 +1,51 @@
+# Keep the build context small and free of secrets / local state.
+# Applies to the root context (Dockerfile, Dockerfile.gateway).
+
+# VCS / CI / editor
+.git
+.github
+.vscode
+.idea
+*.md
+!README.md
+
+# Dependencies & build output (rebuilt inside the image)
+node_modules
+**/node_modules
+dist
+public
+release
+web/dist
+coverage
+**/.vite
+
+# Local data & secrets
+*.db
+*.db-shm
+*.db-wal
+*.log
+.env
+.env.*
+!.env.example
+agent-gateway.json
+*.pem
+*.pfx
+*.key
+
+# Not part of the TS images
+infra
+electron
+docs
+test
+intelligence
+packages
+scripts
+prof-tmp.js
+install.ps1
+start.ps1
+**/__pycache__
+**/.venv
+**/.pytest_cache
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform

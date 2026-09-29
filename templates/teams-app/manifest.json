@@ -1,0 +1,39 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "0.1.0",
+  "id": "${{TEAMS_APP_ID}}",
+  "packageName": "com.contoso.agentgovernance",
+  "developer": {
+    "name": "Agent Governance",
+    "websiteUrl": "https://contoso.com",
+    "privacyUrl": "https://contoso.com/privacy",
+    "termsOfUseUrl": "https://contoso.com/terms"
+  },
+  "name": {
+    "short": "Agent Governance",
+    "full": "Agent Governance Approvals"
+  },
+  "description": {
+    "short": "Approve or deny governed agent actions.",
+    "full": "Receives Agent Governance adaptive cards and routes authenticated Teams approval actions to the governance control plane."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#6264A7",
+  "bots": [
+    {
+      "botId": "${{TEAMS_BOT_APP_ID}}",
+      "scopes": ["team", "personal", "groupchat"],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "validDomains": ["${{GOVERNANCE_HOSTNAME}}"],
+  "webApplicationInfo": {
+    "id": "${{TEAMS_BOT_APP_ID}}",
+    "resource": "api://${{TEAMS_BOT_APP_ID}}"
+  }
+}

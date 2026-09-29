@@ -1,0 +1,60 @@
+{
+  "name": "@agent-governance/sdk",
+  "version": "0.1.0",
+  "description": "Governance SDK for custom AI agents calling the Agent Governance PDP",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/cjs/index.cjs",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.cjs"
+    },
+    "./openai-agents": {
+      "types": "./dist/esm/openai-agents.d.ts",
+      "import": "./dist/esm/openai-agents.js",
+      "require": "./dist/cjs/openai-agents.cjs"
+    },
+    "./langchain": {
+      "types": "./dist/esm/langchain.d.ts",
+      "import": "./dist/esm/langchain.js",
+      "require": "./dist/cjs/langchain.cjs"
+    },
+    "./mcp": {
+      "types": "./dist/esm/mcp.d.ts",
+      "import": "./dist/esm/mcp.js",
+      "require": "./dist/cjs/mcp.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && node scripts/rename-cjs.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependenciesMeta": {
+    "@openai/agents": {
+      "optional": true
+    },
+    "@langchain/core": {
+      "optional": true
+    },
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

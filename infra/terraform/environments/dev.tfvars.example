@@ -1,0 +1,68 @@
+# Copy to dev.tfvars (non-secret values only — safe to commit) and adjust.
+# Secrets are NEVER put in tfvars: pass them as TF_VAR_* from GitHub environment secrets
+# (TF_VAR_teams_webhook_url, TF_VAR_alert_webhook_urls, TF_VAR_gateway_config_json).
+
+environment = "dev"
+location    = "eastus2"
+name_prefix = "agentgov"
+
+tags = {
+  owner       = "platform-team"
+  cost-center = "ai-governance"
+}
+
+# --- Data -----------------------------------------------------------------------------
+cosmos_capacity_mode            = "serverless" # "autoscale" for prod (with cosmos_autoscale_max_throughput)
+redis_sku_name                  = "Balanced_B0"
+redis_high_availability_enabled = false # dev only — keep true for staging/prod
+
+# --- Registry -------------------------------------------------------------------------
+acr_sku = "Standard" # "Premium" for private endpoints / geo-replication / retention
+
+# --- AI: EXISTING Foundry resource (roles are granted, the account is not managed here) ---
+foundry_account_id          = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-foundry/providers/Microsoft.CognitiveServices/accounts/my-foundry"
+foundry_project_name        = "agent-governance"
+judge_fast_deployment       = "gpt-4.1-mini"
+judge_escalation_deployment = "gpt-5"
+guardian_deployment         = "gpt-5"
+content_safety_enabled      = true
+content_safety_sku          = "S0"
+
+# --- Apps -----------------------------------------------------------------------------
+control_plane = {
+  min_replicas = 1
+  max_replicas = 3
+}
+
+gateway = {
+  enabled          = true
+  external_ingress = true
+}
+
+intelligence = {
+  enabled      = true
+  min_replicas = 0 # scale to zero in dev
+}
+
+governance_tenant_id = "default"
+governance_enforce   = true
+
+# --- Networking (optional VNet integration) -----------------------------------------------
+# infrastructure_subnet_id       = "/subscriptions/.../subnets/snet-aca"   # /23+, delegated to Microsoft.App/environments
+# internal_load_balancer_enabled = false
+public_network_access_enabled    = true
+key_vault_network_default_action = "Allow"
+
+# --- Entra ID -------------------------------------------------------------------------
+# api_identifier_uri    = "api://agentgov-dev-api"   # default; some tenants require api://<appId> or a verified domain
+spa_extra_redirect_uris = []
+app_role_principals = {
+  # Viewer      = ["<entra-group-object-id>"]
+  # Approver    = ["<entra-group-object-id>"]
+  # PolicyAdmin = ["<entra-group-object-id>"]
+}
+
+# --- Alerts ---------------------------------------------------------------------------
+communication_enabled = false
+alert_email_to        = []
+bot_enabled           = false

@@ -1,0 +1,88 @@
+import type {
+  Approval, ApprovalState, Decision, Incident, IncidentState, LaneRecord, LaneStatus,
+  RegisteredAgent, SessionIntent, Verdict,
+} from '../types';
+
+/**
+ * Persistence contract for governance data. Two implementations:
+ * - `SqliteGovernanceStore` (local enforcer, node:sqlite — src/governance/store/sqlite.ts)
+ * - `CosmosGovernanceStore` (cloud control plane — src/governance/store/cosmos.ts)
+ *
+ * All methods are async so the cloud implementation can be a drop-in. Implementations must be
+ * safe to call concurrently from request handlers.
+ */
+export interface DecisionQuery {
+  sessionId?: string;
+  agentId?: string;
+  laneId?: string;
+  verdict?: Verdict[];
+  wouldDeny?: boolean;
+  toolName?: string;
+  since?: string;
+  until?: string;
+  /** Free text over reason / tool / rationale. */
+  text?: string;
+  limit?: number;
+  /** Opaque cursor returned by the previous page (seq for SQLite, continuation token for Cosmos). */
+  cursor?: string;
+}
+
+export interface Page<T> { items: T[]; cursor?: string }
+
+export interface ApprovalQuery { state?: ApprovalState[]; sessionId?: string; agentId?: string; limit?: number }
+export interface IncidentQuery { state?: IncidentState[]; agentId?: string; since?: string; limit?: number }
+
+export interface AuditVerifyResult {
+  ok: boolean;
+  checked: number;
+  /** First broken sequence number, when !ok. */
+  brokenAt?: number;
+  headHash?: string;
+}
+
+export interface GovernanceStore {
+  readonly kind: 'sqlite' | 'cosmos';
+  init(): Promise<void>;
+
+  // Lanes (versioned: every save appends a version row; `getLane` returns the latest active)
+  listLanes(status?: LaneStatus[]): Promise<LaneRecord[]>;
+  getLane(id: string, version?: number): Promise<LaneRecord | undefined>;
+  listLaneVersions(id: string): Promise<LaneRecord[]>;
+  saveLane(rec: LaneRecord): Promise<LaneRecord>;
+  setLaneStatus(id: string, version: number, status: LaneStatus, by?: string): Promise<void>;
+
+  // Agent registry
+  listAgents(): Promise<RegisteredAgent[]>;
+  getAgent(id: string): Promise<RegisteredAgent | undefined>;
+  findAgentByExternalId(surface: string, externalId: string): Promise<RegisteredAgent | undefined>;
+  upsertAgent(a: RegisteredAgent): Promise<RegisteredAgent>;
+
+  // Session intent / runtime state
+  getSessionIntent(sessionId: string): Promise<SessionIntent | undefined>;
+  saveSessionIntent(s: SessionIntent): Promise<void>;
+
+  // Decisions — append-only, hash-chained (the store assigns seq/prevHash/hash atomically)
+  appendDecision(d: Decision): Promise<Decision>;
+  getDecision(id: string): Promise<Decision | undefined>;
+  queryDecisions(q: DecisionQuery): Promise<Page<Decision>>;
+  verifyAuditChain(fromSeq?: number, limit?: number): Promise<AuditVerifyResult>;
+
+  // Approvals
+  createApproval(a: Approval): Promise<Approval>;
+  getApproval(id: string): Promise<Approval | undefined>;
+  updateApproval(id: string, patch: Partial<Approval>): Promise<Approval | undefined>;
+  listApprovals(q?: ApprovalQuery): Promise<Approval[]>;
+
+  // Incidents
+  createIncident(i: Incident): Promise<Incident>;
+  getIncident(id: string): Promise<Incident | undefined>;
+  updateIncident(id: string, patch: Partial<Incident>): Promise<Incident | undefined>;
+  listIncidents(q?: IncidentQuery): Promise<Incident[]>;
+
+  // Outboxes (alerts, local→cloud sync). Items are opaque JSON.
+  enqueue(box: 'alerts' | 'sync', item: unknown): Promise<void>;
+  /** Claim up to `limit` items; returns ids to ack. */
+  dequeue(box: 'alerts' | 'sync', limit: number): Promise<{ id: string; item: unknown; attempts: number }[]>;
+  ack(box: 'alerts' | 'sync', ids: string[]): Promise<void>;
+  nack(box: 'alerts' | 'sync', ids: string[]): Promise<void>;
+}

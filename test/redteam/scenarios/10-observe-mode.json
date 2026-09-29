@@ -1,0 +1,30 @@
+{
+  "id": "observe-mode",
+  "description": "Observe mode returns allow while preserving the deny as effectiveVerdict and wouldDeny.",
+  "laneYaml": "id: rt-observe-mode\nversion: 1\npriority: 2000\nmode: observe\npurpose: Observe deny-worthy commands without blocking.\nappliesTo: { surfaces: [claude-code], agents: ['rt-observe-mode'] }\nfailMode: { default: closed, READ: open }\nrules:\n  deny:\n    - id: dangerous-shell\n      tool: [Bash]\n  allow: []\n  judge: []\n  approve: []\ndefaultVerdict: allow\napproval: { channels: [dashboard], timeoutSec: 1 }\njudge: { escalateBelow: 0.7, dataPolicy: redacted }\n",
+  "steps": [
+    {
+      "checkpoint": "goal",
+      "text": "Clean old files.",
+      "expect": {
+        "verdict": "allow"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "rm -rf /"
+      },
+      "expect": {
+        "verdict": "deny",
+        "actualVerdict": "allow",
+        "wouldDeny": true,
+        "stageIn": [
+          "rules_deny"
+        ],
+        "ruleIdIncludes": "dangerous-shell"
+      }
+    }
+  ]
+}

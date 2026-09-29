@@ -1,0 +1,62 @@
+﻿id: monitor-guardian
+version: 1
+name: Monitor Guardian lane
+priority: 200
+appliesTo:
+  surfaces: [monitor]
+  agents: ['*guardian*', '*chat*', '*monitor*']
+  repos: ['*']
+  users: ['*']
+purpose: Govern the monitor's own Guardian, chat, and administrative agents while allowing investigation and recommendations.
+dos:
+  - Read governance decisions, events, incidents, agents, and lanes.
+  - Create incidents and recommend containment actions.
+  - Request human approval for administrative actions.
+never:
+  - Activate or edit the monitor-guardian lane without a human policy administrator checkpoint.
+  - Disable governance, alter audit history, or bypass approvals.
+  - Quarantine agents autonomously unless the configured Guardian authority permits it.
+rules:
+  deny:
+    - id: protect-own-lane
+      category: [WRITE, MCP]
+      command: ['monitor-guardian']
+      description: Guardian may not edit or activate its own lane without admin handling.
+    - id: lane-activation-tools
+      tool: ['*activate*lane*', '*setLaneStatus*']
+      description: Lane activation requires administrative checkpoint handling.
+  approve:
+    - id: admin-checkpoint
+      category: [WRITE, MCP, OTHER]
+      tool: ['*pause*', '*quarantine*', '*approve*', '*deny*', '*lane*']
+      description: Governance administration requires human approval.
+  judge:
+    - id: monitor-writes
+      category: [WRITE, MCP]
+  allow:
+    - id: governance-read
+      category: [READ]
+mode: observe
+failMode:
+  default: closed
+  READ: open
+approval:
+  channels: [dashboard, teams]
+  timeoutSec: 300
+judge:
+  model: fast
+  escalateBelow: 0.75
+  humanBelow: 0.5
+  dataPolicy: redacted
+limits:
+  actionsPerMin: 60
+  maxSubagents: 3
+  maxDepth: 2
+  tokenBudget: 1000000
+  loopThreshold: 6
+promptShields:
+  enabled: true
+  scan: [NETWORK, MCP]
+  taintTtlActions: 20
+guardian:
+  authority: recommend

@@ -1,0 +1,12 @@
+# Checkov configuration for infra/ (used by .github/workflows/ci.yml).
+# Resource-specific, justified exceptions are inline (#checkov:skip=<id>:<reason>) next to the
+# resource so they are reviewed with the code. Only repo-wide exceptions belong here.
+framework:
+  - terraform
+compact: true
+quiet: true
+download-external-modules: false
+skip-check:
+  # Local modules (./modules/*) — commit-hash pinning applies to remote module sources only.
+  - CKV_TF_1
+  - CKV_TF_2

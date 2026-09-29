@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "sh ./scripts/copilot-hook-forward.sh --surface vscode",
+        "windows": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\copilot-hook-forward.ps1 -Surface vscode",
+        "timeout": 120,
+        "env": {
+          "AGENT_GOVERNANCE_FAIL_MODE": "open"
+        }
+      }
+    ],
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "sh ./scripts/copilot-hook-forward.sh --surface vscode",
+        "windows": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\copilot-hook-forward.ps1 -Surface vscode",
+        "timeout": 120,
+        "env": {
+          "AGENT_GOVERNANCE_FAIL_MODE": "open"
+        }
+      }
+    ],
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "sh ./scripts/copilot-hook-forward.sh --surface vscode",
+        "windows": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\copilot-hook-forward.ps1 -Surface vscode",
+        "timeout": 5,
+        "env": {
+          "AGENT_GOVERNANCE_FAIL_MODE": "open"
+        }
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "sh ./scripts/copilot-hook-forward.sh --surface vscode",
+        "windows": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\copilot-hook-forward.ps1 -Surface vscode",
+        "timeout": 120,
+        "env": {
+          "AGENT_GOVERNANCE_FAIL_MODE": "open"
+        }
+      }
+    ],
+    "SubagentStart": [
+      {
+        "type": "command",
+        "command": "sh ./scripts/copilot-hook-forward.sh --surface vscode",
+        "windows": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\copilot-hook-forward.ps1 -Surface vscode",
+        "timeout": 5,
+        "env": {
+          "AGENT_GOVERNANCE_FAIL_MODE": "open"
+        }
+      }
+    ],
+    "SubagentStop": [
+      {
+        "type": "command",
+        "command": "sh ./scripts/copilot-hook-forward.sh --surface vscode",
+        "windows": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\copilot-hook-forward.ps1 -Surface vscode",
+        "timeout": 120,
+        "env": {
+          "AGENT_GOVERNANCE_FAIL_MODE": "open"
+        }
+      }
+    ]
+  }
+}

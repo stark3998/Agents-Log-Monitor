@@ -1,0 +1,44 @@
+{
+  "id": "mcp-server-lane",
+  "description": "MCP server conditions deny prod_db while allowing the approved github MCP server.",
+  "laneYaml": "id: rt-mcp-server-lane\nversion: 1\npriority: 2000\nmode: enforce\npurpose: Restrict MCP servers available to coding agents.\nappliesTo: { surfaces: [claude-code], agents: ['rt-mcp-server-lane'] }\nfailMode: { default: closed, READ: open, MCP: closed }\nrules:\n  deny:\n    - id: prod-db-mcp-denied\n      mcpServer: [prod_db]\n  allow:\n    - id: github-mcp-allowed\n      mcpServer: [github]\n  judge: []\n  approve: []\ndefaultVerdict: deny\napproval: { channels: [dashboard], timeoutSec: 1 }\njudge: { escalateBelow: 0.7, dataPolicy: redacted }\n",
+  "steps": [
+    {
+      "checkpoint": "goal",
+      "text": "Open an issue for the failing test.",
+      "expect": {
+        "verdict": "allow"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "mcp__prod_db__drop_table",
+      "mcpServer": "prod_db",
+      "args": {
+        "table": "customers"
+      },
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "rules_deny"
+        ],
+        "ruleIdIncludes": "prod-db"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "mcp__github__create_issue",
+      "mcpServer": "github",
+      "args": {
+        "title": "Fix flaky test"
+      },
+      "expect": {
+        "verdict": "allow",
+        "stageIn": [
+          "rules_allow"
+        ],
+        "ruleIdIncludes": "github-mcp"
+      }
+    }
+  ]
+}

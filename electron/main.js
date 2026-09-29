@@ -15,44 +15,98 @@ if (process.env.ELECTRON_RUN_AS_NODE) {
 
 const { app, Tray, Menu, shell } = require('electron');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const PORT = 4317;
-const ROOT = app.isPackaged
-  ? path.join(process.resourcesPath, 'app')
-  : path.join(__dirname, '..');
+// Packaged builds ship unpacked (asar: false) so the server can run from resources/app.
+const ROOT = app.isPackaged ? app.getAppPath() : path.join(__dirname, '..');
 
 let tray = null;
 let serverProc = null;
 let running = false;
 let quitting = false;
+let logStream = null;
+let adminLoginUrl = null;
+let openedAdminLogin = false;
 
 // ── Server lifecycle ──────────────────────────────────────────────────────────
+
+function serverCommand() {
+  if (app.isPackaged) {
+    // Run the compiled server on Electron's embedded Node (no system Node.js required).
+    const dataDir = app.getPath('userData');
+    return {
+      cmd: process.execPath,
+      args: [path.join(ROOT, 'dist', 'server.js')],
+      shell: false,
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        PORT: String(PORT),
+        AGENT_MONITOR_DB: process.env.AGENT_MONITOR_DB || path.join(dataDir, 'agent-monitor.db'),
+        AGENT_MONITOR_PUBLIC: path.join(ROOT, 'public'),
+      },
+    };
+  }
+  return {
+    cmd: 'npx',
+    args: ['ts-node', path.join(ROOT, 'src', 'server.ts')],
+    shell: process.platform === 'win32',
+    env: { ...process.env, PORT: String(PORT) },
+  };
+}
+
+function openLog() {
+  if (logStream) return logStream;
+  try {
+    const file = path.join(app.getPath('userData'), 'server.log');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    logStream = fs.createWriteStream(file, { flags: 'a' });
+  } catch { logStream = null; }
+  return logStream;
+}
+
+function openMonitorUrl() {
+  if (adminLoginUrl && !openedAdminLogin) {
+    openedAdminLogin = true;
+    shell.openExternal(adminLoginUrl);
+    return;
+  }
+  shell.openExternal(`http://127.0.0.1:${PORT}`);
+}
 
 function startServer() {
   if (serverProc) return;
   running = false;
   rebuildMenu();
 
-  const [cmd, args] = app.isPackaged
-    ? ['node', [path.join(process.resourcesPath, 'server.js')]]
-    : ['npx', ['ts-node', path.join(ROOT, 'src', 'server.ts')]];
-
+  const { cmd, args, shell: useShell, env } = serverCommand();
   serverProc = spawn(cmd, args, {
     cwd: ROOT,
+    env,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    shell: process.platform === 'win32',
+    shell: useShell,
   });
 
+  const log = openLog();
   serverProc.stdout.on('data', chunk => {
-    if (chunk.toString().includes('listening')) {
+    const text = chunk.toString();
+    log?.write(chunk);
+    const match = text.match(/AGENTGOV_ADMIN_LOGIN_URL=(\S+)/);
+    if (match) {
+      adminLoginUrl = match[1];
+      openMonitorUrl();
+    }
+    if (text.includes('listening')) {
       running = true;
       rebuildMenu();
     }
   });
+  serverProc.stderr.on('data', chunk => log?.write(chunk));
 
-  serverProc.on('exit', code => {
+  serverProc.on('exit', () => {
     serverProc = null;
     running = false;
     rebuildMenu();
@@ -74,6 +128,8 @@ function restartServer() {
   if (serverProc) serverProc.kill();
   serverProc = null;
   running = false;
+  adminLoginUrl = null;
+  openedAdminLogin = false;
   quitting = false;
   setTimeout(startServer, 500);
 }
@@ -85,7 +141,7 @@ function rebuildMenu() {
 
   const autoLaunch = app.getLoginItemSettings().openAtLogin;
   const statusLabel = running
-    ? '● Running  —  port 4317'
+    ? `● Running  —  port ${PORT}`
     : serverProc ? '◌ Starting…' : '○ Stopped';
 
   const template = [
@@ -95,7 +151,11 @@ function rebuildMenu() {
     {
       label: 'Open in Browser',
       enabled: running,
-      click: () => shell.openExternal(`http://127.0.0.1:${PORT}`),
+      click: () => openMonitorUrl(),
+    },
+    {
+      label: 'Open Data Folder',
+      click: () => shell.openPath(app.isPackaged ? app.getPath('userData') : ROOT),
     },
     { type: 'separator' },
     running || serverProc
@@ -151,7 +211,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 app.on('second-instance', () => {
   // If someone opens a second instance, open the browser instead
-  if (running) shell.openExternal(`http://127.0.0.1:${PORT}`);
+  if (running) openMonitorUrl();
 });
 
 app.on('window-all-closed', () => { /* stay alive in tray */ });
@@ -169,7 +229,7 @@ app.whenReady().then(() => {
   // Left-click: open browser if running, else show menu
   tray.on('click', () => {
     if (running) {
-      shell.openExternal(`http://127.0.0.1:${PORT}`);
+      openMonitorUrl();
     } else {
       tray.popUpContextMenu();
     }

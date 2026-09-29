@@ -1,0 +1,56 @@
+{
+  "id": "human-approval",
+  "description": "Human approval lane allows approved actions, denies rejected actions, and applies fail mode on expiry.",
+  "laneYaml": "id: rt-human-approval\nversion: 1\npriority: 2000\nmode: enforce+approval\npurpose: Require dashboard approval for deployment-like shell commands.\nappliesTo: { surfaces: [claude-code], agents: ['rt-human-approval'] }\nfailMode: { default: closed, READ: open, EXEC: closed }\nrules:\n  deny: []\n  allow: []\n  judge: []\n  approve:\n    - id: deploy-needs-human\n      tool: [Bash]\n      command: ['deploy']\ndefaultVerdict: allow\napproval: { channels: [dashboard], timeoutSec: 1 }\njudge: { escalateBelow: 0.7, dataPolicy: redacted }\n",
+  "steps": [
+    {
+      "checkpoint": "goal",
+      "text": "Deploy after validation.",
+      "expect": {
+        "verdict": "allow"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "deploy staging"
+      },
+      "approvalDecision": "approved",
+      "expect": {
+        "verdict": "allow",
+        "stageIn": [
+          "human"
+        ]
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "deploy production"
+      },
+      "approvalDecision": "denied",
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "human"
+        ]
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "deploy hotfix"
+      },
+      "deadlineMs": 30,
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "fail_mode"
+        ]
+      }
+    }
+  ]
+}

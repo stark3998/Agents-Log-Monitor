@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "sh .github/hooks/agent-governance.sh",
+        "timeoutSec": 120
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "sh .github/hooks/agent-governance.sh",
+        "timeoutSec": 120
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "sh .github/hooks/agent-governance.sh",
+        "timeoutSec": 120
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "sh .github/hooks/agent-governance.sh",
+        "timeoutSec": 30
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "type": "command",
+        "bash": "sh .github/hooks/agent-governance.sh",
+        "timeoutSec": 30
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "sh .github/hooks/agent-governance.sh",
+        "timeoutSec": 120
+      }
+    ],
+    "subagentStart": [
+      {
+        "type": "command",
+        "bash": "sh .github/hooks/agent-governance.sh",
+        "timeoutSec": 30
+      }
+    ],
+    "subagentStop": [
+      {
+        "type": "command",
+        "bash": "sh .github/hooks/agent-governance.sh",
+        "timeoutSec": 120
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "sh .github/hooks/agent-governance.sh",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

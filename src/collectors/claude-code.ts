@@ -70,6 +70,7 @@ export const claudeCodeCollector: Collector = {
         model:                p.model,
         payload:              raw,
         occurredAt:           now,
+        captureChannel:       'hook',
       },
     ];
   },

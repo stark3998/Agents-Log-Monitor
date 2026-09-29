@@ -1,0 +1,16 @@
+# Local Terraform artefacts — never commit state, plans or provider caches.
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+plan.txt
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+# Real backend configs are environment-specific (the .example files are committed).
+environments/*.backend.hcl
+# Commit .terraform.lock.hcl and environments/<env>.tfvars (non-secret values only).

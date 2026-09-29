@@ -1,0 +1,5 @@
+*/node_modules/
+*/dist/
+sdk-python/.venv/
+*/.pytest_cache/
+*/**/__pycache__/

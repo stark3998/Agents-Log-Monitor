@@ -1,0 +1,15 @@
+# Azure Storage remote state for the dev environment.
+# Copy to dev.backend.hcl and run:
+#   terraform -chdir=infra/terraform init -backend-config=environments/dev.backend.hcl
+# In GitHub Actions the same values come from environment variables (see .github/workflows/deploy.yml).
+#
+# Locking: the azurerm backend takes a blob lease on the state file for every operation.
+# Auth: Entra ID only (Storage Blob Data Contributor on the container) — shared keys are disabled.
+
+resource_group_name  = "rg-agentgov-tfstate"
+storage_account_name = "stagentgovtfstate001"
+container_name       = "tfstate"
+key                  = "agentgov-dev.tfstate"
+
+use_azuread_auth = true
+# use_oidc       = true   # set automatically in CI via ARM_USE_OIDC=true

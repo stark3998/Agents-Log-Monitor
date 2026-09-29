@@ -1,0 +1,368 @@
+# CD: CI -> build/scan/push images -> terraform plan -> (approval) apply -> roll Container Apps -> smoke test.
+#
+# Auth: GitHub OIDC -> Entra ID federated credential (no client secret anywhere).
+#   secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID   (identifiers, not credentials)
+#   vars:    TFSTATE_RESOURCE_GROUP, TFSTATE_STORAGE_ACCOUNT, TFSTATE_CONTAINER
+# GitHub environments (one pair per target environment):
+#   <env>-plan : no reviewers  — builds images and produces the plan
+#   <env>      : required reviewers — applies the reviewed plan and rolls the apps
+# First deployment: run this workflow manually with bootstrap=true (creates ACR/KV/Cosmos/... without
+# Container Apps, because no image exists yet), then run it again (or push to main).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+      bootstrap:
+        description: First run only — provision shared infra without Container Apps
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Never run two deployments of the same environment at once; never cancel a running apply.
+concurrency:
+  group: deploy-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  TARGET_ENV: ${{ inputs.environment || 'dev' }}
+  BOOTSTRAP: ${{ inputs.bootstrap && 'true' || 'false' }}
+  TF_DIR: infra/terraform
+  TERRAFORM_VERSION: "1.16.2"
+  IMAGE_TAG: ${{ github.sha }}
+  # Terraform azurerm/azuread providers + backend authenticate with the GitHub OIDC token.
+  # (ARM_CLIENT_ID/TENANT/SUBSCRIPTION are set per job so environment-scoped secrets resolve.)
+  ARM_USE_OIDC: "true"
+  ARM_USE_AZUREAD: "true"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  # -------------------------------------------------------------------------------------------
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  # -------------------------------------------------------------------------------------------
+  images:
+    name: Image — ${{ matrix.image }}
+    needs: ci
+    if: ${{ !inputs.bootstrap }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment || 'dev' }}-plan
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: control-plane
+            context: .
+            file: Dockerfile
+          - image: mcp-gateway
+            context: .
+            file: Dockerfile.gateway
+          - image: intelligence
+            context: intelligence
+            file: intelligence/Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      # The registry name comes from state (created by the bootstrap run).
+      - name: Resolve ACR from Terraform state
+        id: acr
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
+            -backend-config="key=agentgov-${TARGET_ENV}.tfstate" \
+            -backend-config="use_azuread_auth=true"
+          echo "name=$(terraform output -raw acr_name)" >> "$GITHUB_OUTPUT"
+          echo "login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Build locally first so a vulnerable image never reaches the registry.
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          tags: ${{ steps.acr.outputs.login_server }}/agentgov/${{ matrix.image }}:${{ env.IMAGE_TAG }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          load: true
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Trivy image scan (fail on CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.acr.outputs.login_server }}/agentgov/${{ matrix.image }}:${{ env.IMAGE_TAG }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # `az acr login` exchanges the OIDC-backed Azure CLI session for an ACR token (admin user is disabled).
+      - name: Push to ACR (git SHA tag only — never :latest)
+        run: |
+          az acr login --name "${{ steps.acr.outputs.name }}"
+          docker push "${{ steps.acr.outputs.login_server }}/agentgov/${{ matrix.image }}:${IMAGE_TAG}"
+
+  # -------------------------------------------------------------------------------------------
+  plan:
+    name: Terraform plan (${{ inputs.environment || 'dev' }})
+    needs: [ci, images]
+    # Run when images succeeded, or were skipped because this is a bootstrap run.
+    if: ${{ !cancelled() && needs.ci.result == 'success' && (needs.images.result == 'success' || (inputs.bootstrap && needs.images.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment || 'dev' }}-plan
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # Optional secrets — empty values disable the feature (see variables.tf).
+      TF_VAR_teams_webhook_url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      TF_VAR_alert_webhook_urls: ${{ secrets.ALERT_WEBHOOK_URLS }}
+      TF_VAR_gateway_config_json: ${{ secrets.GATEWAY_CONFIG_JSON }}
+    defaults:
+      run:
+        working-directory: ${{ env.TF_DIR }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
+            -backend-config="key=agentgov-${TARGET_ENV}.tfstate" \
+            -backend-config="use_azuread_auth=true"
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - name: terraform plan
+        run: |
+          VAR_FILE="environments/${TARGET_ENV}.tfvars"
+          if [ ! -f "$VAR_FILE" ]; then
+            echo "::error::$VAR_FILE not found — copy environments/dev.tfvars.example and commit it (non-secret values only)."
+            exit 1
+          fi
+          if [ "$BOOTSTRAP" = "true" ]; then
+            DEPLOY_APPS=false; TAG=""
+          else
+            DEPLOY_APPS=true; TAG="$IMAGE_TAG"
+          fi
+          terraform plan -input=false -no-color -lock-timeout=5m \
+            -var-file="$VAR_FILE" \
+            -var "environment=${TARGET_ENV}" \
+            -var "deploy_apps=${DEPLOY_APPS}" \
+            -var "image_tag=${TAG}" \
+            -out=tfplan | tee plan.txt
+          {
+            echo "## Terraform plan — ${TARGET_ENV}"
+            echo '```'
+            grep -E '^(Plan:|No changes|  # )' plan.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The binary plan can contain sensitive values: keep it for the minimum time.
+      - name: Upload plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tfplan-${{ env.TARGET_ENV }}-${{ github.run_id }}
+          path: ${{ env.TF_DIR }}/tfplan
+          retention-days: 1
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------------------------
+  deploy:
+    name: Apply & roll out (${{ inputs.environment || 'dev' }})
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Protection rules (required reviewers) on this environment gate the apply.
+    environment:
+      name: ${{ inputs.environment || 'dev' }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Download plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: tfplan-${{ env.TARGET_ENV }}-${{ github.run_id }}
+          path: ${{ env.TF_DIR }}
+
+      - name: terraform init
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
+            -backend-config="key=agentgov-${TARGET_ENV}.tfstate" \
+            -backend-config="use_azuread_auth=true"
+
+      # Applies exactly the reviewed plan; fails if state changed since planning (stale plan).
+      - name: terraform apply (saved plan)
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -input=false -no-color -lock-timeout=5m tfplan
+
+      - name: Read outputs
+        id: tf
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          echo "rg=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+          echo "acr=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
+          echo "cp_url=$(terraform output -raw control_plane_url)" >> "$GITHUB_OUTPUT"
+          echo "gw_url=$(terraform output -raw mcp_gateway_url)" >> "$GITHUB_OUTPUT"
+          terraform output -json container_app_names > "$RUNNER_TEMP/apps.json"
+
+      - name: Azure login (OIDC)
+        if: env.BOOTSTRAP != 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Cosmos containers/indexes are additive and managed by Terraform above, so schema changes
+      # are always in place before new code rolls out.
+      - name: Roll out new revisions (revision suffix = git SHA)
+        if: env.BOOTSTRAP != 'true'
+        env:
+          RG: ${{ steps.tf.outputs.rg }}
+          ACR: ${{ steps.tf.outputs.acr }}
+        run: |
+          set -euo pipefail
+          az extension add --name containerapp --upgrade --only-show-errors
+          # Revision suffix must start with a letter: g<sha8>-r<run>-<attempt>.
+          SUFFIX="g${IMAGE_TAG:0:8}-r${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          : > "$RUNNER_TEMP/previous-images.txt"
+          for pair in control_plane:control-plane gateway:mcp-gateway intelligence:intelligence; do
+            key="${pair%%:*}"; repo="${pair##*:}"
+            app="$(jq -r --arg k "$key" '.[$k]' "$RUNNER_TEMP/apps.json")"
+            if ! az containerapp show -n "$app" -g "$RG" --only-show-errors >/dev/null 2>&1; then
+              echo "::notice::$app not deployed (disabled) — skipping"; continue
+            fi
+            prev="$(az containerapp show -n "$app" -g "$RG" --query 'properties.template.containers[0].image' -o tsv)"
+            echo "$app $prev" >> "$RUNNER_TEMP/previous-images.txt"
+            echo "Updating $app -> $ACR/agentgov/$repo:$IMAGE_TAG (revision suffix $SUFFIX)"
+            az containerapp update -n "$app" -g "$RG" \
+              --image "$ACR/agentgov/$repo:$IMAGE_TAG" \
+              --revision-suffix "$SUFFIX" \
+              --only-show-errors -o none
+          done
+
+      - name: Smoke test
+        if: env.BOOTSTRAP != 'true'
+        env:
+          RG: ${{ steps.tf.outputs.rg }}
+          CP_URL: ${{ steps.tf.outputs.cp_url }}
+          GW_URL: ${{ steps.tf.outputs.gw_url }}
+        run: |
+          set -euo pipefail
+          check() {
+            local url="$1"
+            for i in $(seq 1 30); do
+              code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)"
+              if [ "$code" = "200" ]; then echo "OK  $url"; return 0; fi
+              echo "… $url -> $code (attempt $i/30)"; sleep 10
+            done
+            echo "::error::Health check failed: $url"; return 1
+          }
+          check "$CP_URL/health"
+          # Gateway only when publicly reachable; the intelligence app is internal-only.
+          if [ -n "$GW_URL" ] && [[ "$GW_URL" != *".internal."* ]]; then check "$GW_URL/health"; fi
+          # Every rolled app's latest revision must be Healthy (covers internal-only apps).
+          while read -r app _; do
+            for i in $(seq 1 30); do
+              state="$(az containerapp revision list -n "$app" -g "$RG" \
+                --query "[?properties.active] | sort_by(@, &properties.createdTime) | [-1].properties.healthState" -o tsv)"
+              [ "$state" = "Healthy" ] && { echo "OK  $app revision Healthy"; break; }
+              [ "$i" = 30 ] && { echo "::error::$app latest revision is '$state'"; exit 1; }
+              sleep 10
+            done
+          done < "$RUNNER_TEMP/previous-images.txt"
+
+      # Automatic rollback to the previously running image if the new revision is unhealthy.
+      - name: Roll back on failure
+        if: failure() && env.BOOTSTRAP != 'true'
+        env:
+          RG: ${{ steps.tf.outputs.rg }}
+        run: |
+          [ -f "$RUNNER_TEMP/previous-images.txt" ] || exit 0
+          while read -r app prev; do
+            case "$prev" in
+              *"/agentgov/"*)
+                echo "Rolling $app back to $prev"
+                az containerapp update -n "$app" -g "$RG" --image "$prev" --only-show-errors -o none ;;
+              *) echo "No previous application image for $app (first rollout) — leaving as is" ;;
+            esac
+          done < "$RUNNER_TEMP/previous-images.txt"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Deployment — ${TARGET_ENV}"
+            echo "- Image tag: \`${IMAGE_TAG}\`"
+            echo "- Control plane: ${{ steps.tf.outputs.cp_url }}"
+            echo "- MCP gateway: ${{ steps.tf.outputs.gw_url }}"
+            echo "- Bootstrap run: ${BOOTSTRAP}"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -5,21 +5,31 @@ How Agent Monitor captures events from each agent platform, normalises them into
 ## Pipeline overview
 
 ```
-Sources                          Shared pipeline
-───────                          ───────────────
-Claude Code  ──POST /ingest──►
-                                 Collector.normalize()
-AI Foundry   ──poll()────────►       │
-                                 pipeline.ts (upsertSession + upsertAgent + insertEvent)
-Copilot Studio ──poll()──────►       │
-                                 SQLite (agent-monitor.db)
-                                     │
-                                 WebSocket broadcast (/live)
-                                     │
-                                 Browser UI (index.html)
+Sources                            Shared pipeline
+───────                            ───────────────
+Claude Code        ──POST /ingest──►
+Copilot CLI hooks  ──POST /ingest──►   Collector.normalize()
+Copilot CLI log    ──poll()────────►       │
+AI Foundry         ──poll()────────►   pipeline.ts
+Copilot Studio     ──poll()────────►     upsertSession → upsertAgent → analyzeEvent
+                                         → insertEvent → insertFindings → correlateChannels
+                                           │
+                                       SQLite (agent-monitor.db)
+                                           │
+                                       WebSocket broadcast (/live) → web UI (web/ → public/)
 ```
 
-Push sources post directly to the HTTP ingest endpoint. Pull sources are called on a timer by the polling engine (`startPollers()` in `src/collectors/registry.ts`). Both paths converge at `processNormalizedEvent()` in `src/pipeline.ts`.
+Push sources post directly to the HTTP ingest endpoint. Pull sources are called on a timer by the polling engine (`startPollers()` in `src/collectors/registry.ts`); a collector that reports `hasBacklog()` is polled again immediately, in slices, so large imports never block the HTTP server for long. Both paths converge at `processNormalizedEvent()` in `src/pipeline.ts`, which also runs the analytics layer (see [analytics.md](analytics.md)).
+
+Every stored event records its **capture channel** (`events.capture_channel`):
+
+| Channel | Meaning |
+|---|---|
+| `hook` | Pushed in real time by an agent hook (Claude Code, Copilot CLI hooks) |
+| `log` | Read from an agent's local session log (Copilot CLI `events.jsonl`, Claude Code transcript) |
+| `poll` | Pulled from a cloud API (Foundry, Copilot Studio) |
+
+The UI shows the channel on every conversation and tool call.
 
 ---
 
@@ -51,6 +61,55 @@ A secondary data source runs in parallel: when a session arrives with a `transcr
 | Transcript: text block | `assistant_text` | from JSONL watcher |
 
 **Configuration:** Run `install.ps1` once. No environment variables needed.
+
+---
+
+### GitHub Copilot CLI
+
+Copilot CLI is captured through two channels. The log channel is primary and needs no setup; hooks are optional.
+
+#### Log channel (primary)
+
+**Mechanism:** Pull — tails the CLI's per-session event log  
+**Collector:** `src/collectors/copilot-cli.ts`  
+**Files:** `$COPILOT_HOME/session-state/<sessionId>/events.jsonl` (default `COPILOT_HOME` = `~/.copilot`)
+
+Each line is `{ type, data, id, timestamp, agentId? }`. The collector keeps a byte offset per file in `poller_state`, reads at most ~2 MB per poll (so the first import is progressive), skips high-volume/no-value types before parsing (`hook.*`, `system.message`, `session.binary_asset`, …) and stores a **trimmed** payload (long strings clipped; tool output ≤ 3 KB). Sensitive-data detection runs on the full text before trimming. Event timestamps come from the log, and `externalId = copilot-cli:<session>:<event id>` makes re-reads idempotent.
+
+| Log event | eventType / rawEventName | Notes |
+|---|---|---|
+| `session.start` / `session.resume` | `lifecycle` SessionStart / SessionResume | cwd, repository, branch, model |
+| `session.shutdown` | `lifecycle` SessionEnd | token totals, lines changed |
+| `session.model_change` | `lifecycle` ModelChange | |
+| `session.mode_changed` | `lifecycle` ModeChange | `autopilot` → autonomy 3 |
+| `session.permissions_changed` | `lifecycle` PermissionsChange | allow-all on → autonomy 3 |
+| `user.message` | `prompt` | first prompt becomes the conversation title |
+| `assistant.message` | `assistant_text` (+ `thinking` from `reasoningText`) | |
+| `tool.execution_start` | `tool_call` | `toolUseId = toolCallId`; `mcpServerName` marks MCP tools; `agentId` set inside subagents |
+| `tool.execution_complete` | `tool_result` | success / error, exit code, trimmed output |
+| `subagent.started` / `completed` / `failed` | `lifecycle` SubagentStart / SubagentStop | display name, type, model |
+| `permission.requested` / `completed` | `lifecycle` PermissionRequest / PermissionResult | recorded as policy findings (prompted / approved / denied) |
+| `abort` | `lifecycle` Abort | |
+
+**Configuration:**
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `COPILOT_CLI_ENABLED` | on (if the folder exists) | Set `false` to disable |
+| `COPILOT_HOME` | `~/.copilot` | CLI home folder |
+| `COPILOT_CLI_IMPORT_DAYS` | `7` | On first sight, only logs modified within this window are imported |
+| `COPILOT_CLI_POLL_INTERVAL_MS` | `2000` | Tail interval |
+
+#### Hook channel (optional)
+
+**Mechanism:** Push — Copilot CLI command hooks → forwarder script  
+**Collector:** `src/collectors/copilot-cli-hooks.ts`  
+**Endpoint:** `POST http://127.0.0.1:4317/ingest/copilot-cli-hooks`  
+**Setup:** `.\install.ps1 -CopilotHooks` writes `~/.copilot/hooks/agent-monitor.json`
+
+The config registers PascalCase events (`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SubagentStop`, `ErrorOccurred`), so payloads arrive in the VS Code–compatible snake_case format. Each hook runs `scripts/copilot-hook-forward.ps1` (or `.sh`), which POSTs stdin to the ingest endpoint with a 2 s timeout, **prints nothing and always exits 0**: command `preToolUse` hooks are fail-closed, so a failing forwarder would otherwise block tool calls. Each hook starts a short PowerShell process, so expect a small per-tool-call overhead.
+
+**Correlation:** a hook event and its log twin (same session and event type, same canonical tool name such as `Bash` ↔ `powershell` or `Read` ↔ `view`, the same command/path when both carry one, within ±15 s) are linked by `events.correlated_event_id` on the hook row. Linked hook rows are excluded from all counts and hidden in the timeline; the log row shows a **log + hook** badge. Hook events with no log twin stay visible with a **hook** badge.
 
 ---
 
@@ -166,8 +225,13 @@ All collectors produce this shape (`src/collectors/types.ts`). The pipeline writ
 | `cacheReadInputTokens` | Yes | Claude prompt cache read tokens. |
 | `errorText` | Yes | Error message text (PostToolUse `error`, run `last_error.message`). |
 | `model` | Yes | Model identifier (e.g. `claude-sonnet-4-6`). Used by the UI for cost estimation. |
-| `payload` | No | Full original object from the source. Shown in the detail drawer. |
-| `occurredAt` | No | ISO 8601 timestamp. Claude Code: server receive time. Foundry/Copilot: platform timestamp converted from epoch. |
+| `payload` | No | Source object (trimmed for high-volume sources). Shown in the tool detail view. |
+| `occurredAt` | No | ISO 8601 timestamp. Claude Code: server receive time. Copilot CLI / Foundry / Copilot Studio: platform timestamp. |
+| `captureChannel` | Yes | `hook` · `log` · `poll`; defaulted from the collector when omitted. |
+| `scanText` | Yes | Full text used for sensitive-data detection when `payload` is trimmed. Never stored. |
+| `autonomyLevel` | Yes | 1 supervised · 2 assisted · 3 autonomous, when the source reports a permission mode. |
+| `policy` | Yes | Explicit policy outcome (`blocked` · `denied` · `warned` · `prompted` · `approved`) and label. |
+| `cwd` | Yes | Working directory when not present as `payload.cwd`. |
 
 ---
 
@@ -181,4 +245,6 @@ All collectors produce this shape (`src/collectors/types.ts`). The pipeline writ
 
 4. **Register in `src/server.ts`** — guard the import with a config flag and call `register(myCollector)` before `startPollers()`. Add the corresponding entry in `src/config.ts`.
 
-5. **Add a sidebar badge** in `public/index.html` — a CSS class `.src-my-source` in the badge rules and a label entry in the `SOURCE_LABELS` map.
+5. **Give the agent an identity** — add the collector id to the `AGENTS` map in `src/analytics/identity.ts` (display name and kind), add it to `LOCAL_COLLECTORS` if it runs on this machine, and add an icon/colour in `web/src/components/AgentAvatar.tsx`. Add a row to the Sources list in `src/routes/api.ts` (`GET /api/sources`).
+
+6. **Large backfills** — implement `hasBacklog()` and cap the work per `poll()` so the registry drains the backlog in slices.

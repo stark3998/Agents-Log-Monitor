@@ -1,0 +1,154 @@
+{
+  "id": "runaway-loop",
+  "description": "The same command repeated ten times is denied once the lane loop threshold is reached.",
+  "laneYaml": "id: rt-runaway-loop\nversion: 1\npriority: 2000\nmode: enforce\npurpose: Allow local commands but cap repeated loops.\nappliesTo: { surfaces: [claude-code], agents: ['rt-runaway-loop'] }\nfailMode: { default: closed, READ: open }\nrules: { deny: [], allow: [], judge: [], approve: [] }\ndefaultVerdict: allow\napproval: { channels: [dashboard], timeoutSec: 1 }\njudge: { escalateBelow: 0.7, dataPolicy: redacted }\nlimits: { actionsPerMin: 100, loopThreshold: 4 }\n",
+  "steps": [
+    {
+      "checkpoint": "goal",
+      "text": "Run the test command until it passes.",
+      "expect": {
+        "verdict": "allow"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "allow",
+        "stageIn": [
+          "default",
+          "cache"
+        ]
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "allow",
+        "stageIn": [
+          "default",
+          "cache"
+        ]
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "allow",
+        "stageIn": [
+          "default",
+          "cache"
+        ]
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "limits"
+        ],
+        "ruleIdIncludes": "loop"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "limits"
+        ],
+        "ruleIdIncludes": "loop"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "limits"
+        ],
+        "ruleIdIncludes": "loop"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "limits"
+        ],
+        "ruleIdIncludes": "loop"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "limits"
+        ],
+        "ruleIdIncludes": "loop"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "limits"
+        ],
+        "ruleIdIncludes": "loop"
+      }
+    },
+    {
+      "checkpoint": "pre_tool",
+      "toolName": "Bash",
+      "args": {
+        "command": "npm test -- --runInBand"
+      },
+      "expect": {
+        "verdict": "deny",
+        "stageIn": [
+          "limits"
+        ],
+        "ruleIdIncludes": "loop"
+      }
+    }
+  ]
+}
