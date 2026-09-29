@@ -11,15 +11,17 @@ Claude Code        ──POST /ingest──►
 Copilot CLI hooks  ──POST /ingest──►   Collector.normalize()
 Copilot CLI log    ──poll()────────►       │
 AI Foundry         ──poll()────────►   pipeline.ts
-Copilot Studio     ──poll()────────►     upsertSession → upsertAgent → analyzeEvent
-                                         → insertEvent → insertFindings → correlateChannels
+Copilot Studio     ──poll()────────►     upsertSession → upsertAgent → analyzeEvent (raw content)
+                                         → redactDeep → insertEvent → reconcileDenials
+                                         → insertFindings → correlateChannels
                                            │
-                                       SQLite (agent-monitor.db)
+                                       SQLite via node:sqlite (agent-monitor.db, WAL;
+                                       checkpoints on a worker thread)
                                            │
                                        WebSocket broadcast (/live) → web UI (web/ → public/)
 ```
 
-Push sources post directly to the HTTP ingest endpoint. Pull sources are called on a timer by the polling engine (`startPollers()` in `src/collectors/registry.ts`); a collector that reports `hasBacklog()` is polled again immediately, in slices, so large imports never block the HTTP server for long. Both paths converge at `processNormalizedEvent()` in `src/pipeline.ts`, which also runs the analytics layer (see [analytics.md](analytics.md)).
+Push sources post directly to the HTTP ingest endpoint. Pull sources are called on a timer by the polling engine (`startPollers()` in `src/collectors/registry.ts`). Events are written in transactions of 400. Between slices the registry yields to the event loop and truncates the write-ahead log once it passes 64 MB. A collector that reports `hasBacklog()` is polled again right away, so large imports progress steadily without blocking the HTTP server. Both paths converge at `processNormalizedEvent()` in `src/pipeline.ts`. It analyzes the raw content, then redacts the payload according to `REDACT_PAYLOADS` before storing it (see [analytics.md](analytics.md)).
 
 Every stored event records its **capture channel** (`events.capture_channel`):
 
@@ -207,7 +209,7 @@ Setting `DATAVERSE_ORG_URL` enables this collector.
 
 ## NormalizedEvent schema
 
-All collectors produce this shape (`src/collectors/types.ts`). The pipeline writes it to SQLite and broadcasts it over WebSocket unchanged.
+All collectors produce this shape (`src/collectors/types.ts`). The pipeline analyzes it, redacts the payload, writes it to SQLite, and broadcasts a compact timeline update over WebSocket.
 
 | Field | Optional | Description |
 |---|---|---|
@@ -225,7 +227,7 @@ All collectors produce this shape (`src/collectors/types.ts`). The pipeline writ
 | `cacheReadInputTokens` | Yes | Claude prompt cache read tokens. |
 | `errorText` | Yes | Error message text (PostToolUse `error`, run `last_error.message`). |
 | `model` | Yes | Model identifier (e.g. `claude-sonnet-4-6`). Used by the UI for cost estimation. |
-| `payload` | No | Source object (trimmed for high-volume sources). Shown in the tool detail view. |
+| `payload` | No | Source object: trimmed for high-volume sources, and redacted per `REDACT_PAYLOADS` before storage. Shown in the tool detail view. |
 | `occurredAt` | No | ISO 8601 timestamp. Claude Code: server receive time. Copilot CLI / Foundry / Copilot Studio: platform timestamp. |
 | `captureChannel` | Yes | `hook` · `log` · `poll`; defaulted from the collector when omitted. |
 | `scanText` | Yes | Full text used for sensitive-data detection when `payload` is trimmed. Never stored. |

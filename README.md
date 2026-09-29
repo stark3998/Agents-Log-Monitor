@@ -58,12 +58,24 @@ Every event is labelled with the channel it arrived through. When Copilot CLI ho
 - **Other features:**
   - dark theme by default, plus a light theme
   - live status indicator
-  - Sources dialog showing collector health and setup steps
+  - Settings dialog (tune icon): collector health and setup steps, the effective detection rules, and privacy/storage status
   - alerts for high-severity conversations
   - export of activity logs as CSV or JSON Lines
   - animations are reduced when the OS asks for reduced motion
 
 How findings, risk and severity are computed: [docs/analytics.md](docs/analytics.md).
+
+## Privacy and tuning
+
+- **Payload redaction is on by default.** Secrets (API keys, tokens, passwords, connection strings, private keys) are masked before payloads are stored, for example `ghp_****a1f3`. Detection runs on the raw content first, so findings are unaffected. Set `REDACT_PAYLOADS=off|secrets|all` (`all` also masks email addresses). When you raise the level, events stored earlier are redacted in the background on the next start.
+- **Findings never store raw values.** They keep only masked samples, whatever the redaction level.
+- **Severity, risk and detections are advisory heuristics.** Tune them in `agent-monitor.rules.json` next to the database, or at the path set by `AGENT_MONITOR_RULES`. You can:
+  - override or turn off risk rules, or add your own regex rules
+  - disable detectors
+  - ignore domains
+  - change the severity thresholds
+
+  Edits are picked up while the server runs, and stored events are re-analyzed in the background. The **Detection rules** tab in Settings shows the rules currently in effect. Schema and examples: [docs/analytics.md](docs/analytics.md#tuning--agent-monitorrulesjson).
 
 ## Quick start
 
@@ -160,6 +172,30 @@ npm run electron:dev # Electron + ts-node
 
 Set `AGENT_MONITOR_DB` to use a different database file, and `PORT` to change the port.
 
+### Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `4317` | HTTP/WebSocket port (bound to 127.0.0.1) |
+| `AGENT_MONITOR_DB` | `./agent-monitor.db` | SQLite database file (WAL mode; `-wal`/`-shm` files sit beside it) |
+| `AGENT_MONITOR_PUBLIC` | `<app>/public` | Folder containing the built web UI |
+| `AGENT_MONITOR_RULES` | `agent-monitor.rules.json` next to the DB | Heuristics tuning file |
+| `REDACT_PAYLOADS` | `secrets` | `off`, `secrets` or `all` |
+| `COPILOT_CLI_ENABLED` / `COPILOT_HOME` / `COPILOT_CLI_IMPORT_DAYS` | on / `~/.copilot` / `7` | Copilot CLI log collector |
+
+### Storage
+
+Events are stored with Node's built-in SQLite (`node:sqlite`) in WAL mode. Writes are incremental, and the only step that flushes to disk (the WAL checkpoint) runs on a worker thread, so large imports don't stall the dashboard. Ingest is batched per transaction, and the write-ahead log is truncated once it passes 64 MB. Existing `agent-monitor.db` files from earlier versions open as they are.
+
+### Desktop app (Electron)
+
+```powershell
+npm run electron:pack    # unpacked app in release/win-unpacked (quick smoke test)
+npm run electron:build   # NSIS installer in release/
+```
+
+The tray app runs the compiled server on **Electron's embedded Node**, so end users don't need Node.js installed. The app ships unpacked (`asar: false`) so the server and its dependencies load straight from `resources/app`. The database, rules file and `server.log` are stored in the app's user-data folder (`%APPDATA%\Agent Monitor`); open it from the tray with **Open Data Folder**. Fonts are bundled, so the UI works offline.
+
 ### Hook enforcement surfaces
 
 `install.ps1` rewires Claude Code to `/hooks/claude-code` with blocking timeouts and can also install Copilot CLI, machine-wide Copilot policy, or VS Code Local hooks:
@@ -180,7 +216,7 @@ For macOS/Linux Claude Code and Copilot CLI setup, use `./install.sh --copilot-h
 - [Hook surfaces](docs/governance-surfaces.md), [MCP server](docs/mcp.md), [MCP gateway](docs/mcp-gateway.md), [Intelligence service](docs/intelligence.md)
 - [Cloud mode](docs/cloud-mode.md), [Security & auth](docs/security-auth.md), [Infrastructure](infra/README.md)
 - [Log Ingestion](docs/log-ingestion.md): how each source is polled or pushed, event mappings, capture channels, the `NormalizedEvent` schema, and how to add a new source
-- [Analytics](docs/analytics.md): detectors, risk rules, policy events, severity and autonomy
+- [Analytics](docs/analytics.md): detectors, risk rules, policy events, severity, autonomy, redaction and the rules file
 
 ## Requirements
 

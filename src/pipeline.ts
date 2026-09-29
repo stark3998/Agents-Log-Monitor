@@ -154,6 +154,7 @@ export function startAnalysisBackfill(): void {
         for (const r of rows) processStoredRow(r);
         done = rows.length;
       });
+      maybeTruncateWal();
     } catch (err) {
       console.error('[maintenance] backfill error:', err);
       maintenance.running = false;
