@@ -20,7 +20,7 @@ export function SessionControls({ sessionId }: { sessionId: string }) {
   const intent = useSessionIntent(sessionId);
   const action = useSessionAction();
   const [pending, setPending] = useState<AgentAction | null>(null);
-  if (!intent.data) return null; // not governed (404) or governance disabled
+  if (!intent.data) return null; // not governed (null) or governance disabled
   const i = intent.data;
   const stopped = i.status !== 'active';
   return (

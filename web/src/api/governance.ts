@@ -375,7 +375,7 @@ export const useIncident = (id: string | null) =>
   useQuery({ queryKey: govKeys.incident(id ?? ''), queryFn: () => api<Incident>(`gov/incidents/${enc(id!)}`), enabled: !!id, retry: noRetryOn4xx });
 
 export const useSessionIntent = (sessionId: string | null) =>
-  useQuery({ queryKey: govKeys.intent(sessionId ?? ''), queryFn: () => api<SessionIntent>(`gov/sessions/${enc(sessionId!)}/intent`), enabled: !!sessionId, retry: false });
+  useQuery({ queryKey: govKeys.intent(sessionId ?? ''), queryFn: () => api<SessionIntent | null>(`gov/sessions/${enc(sessionId!)}/intent`), enabled: !!sessionId, retry: false });
 
 // ── Mutations ─────────────────────────────────────────────────────────────
 

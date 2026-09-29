@@ -42,6 +42,21 @@ function Write-Ok([string]$msg) { Write-Host "    $msg" -ForegroundColor Green }
 function Write-Warn([string]$msg) { Write-Host "    WARNING: $msg" -ForegroundColor Yellow }
 function Fail([string]$msg) { Write-Host "`nERROR: $msg" -ForegroundColor Red; exit 1 }
 
+# Windows PowerShell 5.1 turns native stderr lines into terminating errors under
+# ErrorActionPreference=Stop when redirected with 2>&1. Tools like npm/vite print
+# warnings to stderr, so run them with Continue and judge success by $LASTEXITCODE.
+function Invoke-Native([scriptblock]$Command) {
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & $Command 2>&1 | ForEach-Object {
+      if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" }
+    }
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+}
+
 function ConvertTo-MutableHt {
   param($Obj)
   if ($null -eq $Obj) { return $null }
@@ -250,12 +265,12 @@ Write-Ok "npm $npmVer"
 
 Write-Step "Installing npm dependencies"
 Push-Location $ScriptDir
-& $npmCmd install --prefer-offline 2>&1 | ForEach-Object { "    $_" }
+Invoke-Native { & $npmCmd install --prefer-offline } | ForEach-Object { "    $_" }
 if ($LASTEXITCODE -ne 0) { Pop-Location; Fail "npm install failed." }
 Write-Ok "Dependencies installed."
 
 Write-Step "Building TypeScript"
-& $npmCmd run build 2>&1 | ForEach-Object { "    $_" }
+Invoke-Native { & $npmCmd run build } | ForEach-Object { "    $_" }
 if ($LASTEXITCODE -ne 0) { Pop-Location; Fail "TypeScript build failed." }
 Write-Ok "Build complete -> dist/"
 Pop-Location

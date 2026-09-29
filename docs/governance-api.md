@@ -66,7 +66,7 @@ These endpoints also forward telemetry into the existing ingest pipeline, so `/i
 | `PATCH /api/gov/agents/:id` body `Partial<RegisteredAgent>` (owner, purpose, laneId, name) | PolicyAdmin | `RegisteredAgent` |
 | `POST /api/gov/agents/:id/pause` / `resume` / `quarantine` body `{ reason }` | PolicyAdmin | `RegisteredAgent` |
 | `POST /api/gov/sessions/:id/pause` / `resume` / `quarantine` | PolicyAdmin | `SessionIntent` |
-| `GET /api/gov/sessions/:id/intent` | Viewer | `SessionIntent` |
+| `GET /api/gov/sessions/:id/intent` | Viewer | `SessionIntent \| null` (`null` when the session has no governance state yet) |
 | `GET /api/gov/lanes?status=` | Viewer | `LaneRecord[]` |
 | `GET /api/gov/lanes/:id` / `GET /api/gov/lanes/:id/versions` | Viewer | `LaneRecord` / `LaneRecord[]` |
 | `POST /api/gov/lanes` body `{ yaml }` or `{ lane }`, `status` (`draft`, `proposed` or `active`) | PolicyAdmin (`proposed`: any authenticated) | `LaneRecord` (new version) |

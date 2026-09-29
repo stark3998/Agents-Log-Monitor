@@ -13,7 +13,7 @@ import { LiveDot } from './Primitives';
 import { SettingsProvider, useOpenSettings } from './SettingsDialog';
 import { AlertsMenu } from './AlertsMenu';
 import { PrincipalMenu } from './gov/PrincipalMenu';
-import { AskDrawerButton } from '../pages/ask/AskPage';
+import { AskDrawerButton } from '../pages/ask/AskDrawerButton';
 
 const TABS = [
   { path: '/overview', label: 'Overview' },

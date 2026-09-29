@@ -159,9 +159,8 @@ for (const action of ['pause', 'resume', 'quarantine'] as const) {
   });
 }
 router.get('/sessions/:id/intent', requireRole('Viewer'), async (req, res) => {
-  const i = await govStore().getSessionIntent(req.params.id);
-  if (!i) { res.status(404).json({ error: 'not found' }); return; }
-  res.json(i);
+  // Sessions seen only through telemetry have no intent; that's a normal state, not a missing resource.
+  res.json((await govStore().getSessionIntent(req.params.id)) ?? null);
 });
 
 router.get('/lanes', requireRole('Viewer'), async (req, res) => res.json(await govStore().listLanes(req.query.status ? [req.query.status as never] : undefined)));

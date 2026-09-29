@@ -234,6 +234,10 @@ approval: { channels: [dashboard], timeoutSec: 1 }
     expect(timedOut).toMatchObject({ verdict: 'deny', stage: 'fail_mode' });
   });
 
+  it('returns null intent for sessions without governance state', async () => {
+    expect(await json('/api/gov/sessions/s-ungoverned/intent')).toBeNull();
+  });
+
   it('applies the session kill switch without prior intent', async () => {
     await json('/api/gov/sessions/s-paused/pause', { method: 'POST', body: JSON.stringify({ reason: 'e2e' }) });
     const out = claudeDecision(await claudePreTool('s-paused', 'Bash', { command: 'npm test' }, 'paused-test'));
