@@ -43,6 +43,16 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --ignore-scripts
 
 # ---------------------------------------------------------------------------------------------
+# docs: the repository's Markdown documentation, paths preserved (Docs tab + Ask grounding)
+# ---------------------------------------------------------------------------------------------
+FROM ${NODE_IMAGE} AS docs
+WORKDIR /repo
+COPY . .
+RUN mkdir -p /out \
+ && find . -name '*.md' -not -path '*/node_modules/*' -not -path './web/*' \
+      -exec sh -c 'mkdir -p "/out/$(dirname "$1")" && cp "$1" "/out/$1"' _ {} \;
+
+# ---------------------------------------------------------------------------------------------
 # runtime
 # ---------------------------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
@@ -72,6 +82,7 @@ COPY --from=build /src/dist ./dist
 COPY --from=build /src/public ./public
 COPY lanes ./lanes
 COPY policies ./policies
+COPY --from=docs /out ./
 
 USER node
 EXPOSE 4317

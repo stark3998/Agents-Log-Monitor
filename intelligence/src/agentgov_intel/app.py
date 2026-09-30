@@ -34,7 +34,7 @@ def create_app(settings: Settings | None = None, runner: Any | None = None, moni
     monitor = monitor or MonitorClient(settings)
     runner = runner or default_runner(settings)
     guardian = GuardianService(settings, monitor, runner)
-    chat = MonitorChat(settings, runner)
+    chat = MonitorChat(settings, runner, monitor)
     drafter = LaneDrafter(settings, monitor, runner)
     bg_task: asyncio.Task[Any] | None = None
 

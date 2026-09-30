@@ -155,7 +155,25 @@ describe('governance MCP server', () => {
         'verify_audit_chain', 'get_overview_stats', 'approve_action', 'deny_action',
         'pause_agent', 'resume_agent', 'quarantine_session', 'propose_lane_change',
         'create_incident', 'update_incident', 'acknowledge_incident', 'jev_shadow_summary',
+        'search_docs', 'get_doc',
       ]));
+    } finally {
+      await close();
+    }
+  });
+
+  it('searches and reads the repository documentation', async () => {
+    const { client, close } = await connect(admin);
+    try {
+      const search = parsed(await client.callTool({ name: 'search_docs', arguments: { query: 'alert taxonomy', limit: 3 } }));
+      expect(search.hits.length).toBeGreaterThan(0);
+      expect(search.hits[0].link).toMatch(/^\/docs\//);
+      expect(search.hits[0].text.length).toBeGreaterThan(0);
+      const doc = parsed(await client.callTool({ name: 'get_doc', arguments: { id: 'docs/fleet.md', anchor: 'alert-taxonomy' } }));
+      expect(doc).toMatchObject({ id: 'fleet', link: '/docs/fleet#alert-taxonomy' });
+      expect(doc.content).toMatch(/^## Alert taxonomy/);
+      const missing = await client.callTool({ name: 'get_doc', arguments: { id: 'no-such-doc' } });
+      expect(missing.isError).toBe(true);
     } finally {
       await close();
     }

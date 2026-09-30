@@ -22,6 +22,8 @@ READ_ONLY_TOOLS: tuple[str, ...] = (
     "simulate_lane",
     "verify_audit_chain",
     "get_overview_stats",
+    "search_docs",
+    "get_doc",
 )
 
 CONTAINMENT_TOOLS: tuple[str, ...] = ("pause_agent", "quarantine_session", "update_incident", "create_incident")

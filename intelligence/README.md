@@ -4,7 +4,7 @@ FastAPI service that adds AI-assisted governance capabilities to the TypeScript 
 
 - Guardian investigator agent for incident triage and governed containment.
 - AI lane drafter that proposes lane YAML in `proposed` status.
-- "Ask the monitor" streaming chat over Server-Sent Events.
+- "Ask the monitor" streaming chat over Server-Sent Events, grounded in the project documentation (fetched from the monitor's `/api/docs/search` and the `search_docs`/`get_doc` MCP tools) and citing pages as `/docs/<id>#<anchor>` links.
 
 The implementation uses Microsoft Agent Framework for Python (`agent-framework` 1.x), Azure OpenAI / Microsoft Foundry model deployments, and `DefaultAzureCredential`. No API keys are required (the optional Jev shadow uses `TYPESAFE_API_KEY`).
 

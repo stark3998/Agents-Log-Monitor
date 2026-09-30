@@ -7,8 +7,11 @@ import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
 import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
 import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { Markdown } from '../../components/Markdown';
+import { api } from '../../api/client';
 import { ChatUnavailableError, citationHref, streamChat, type ChatEvent } from '../../lib/sse';
 
 type Citation = Extract<ChatEvent, { type: 'citation' }>;
@@ -22,26 +25,41 @@ interface Turn {
   pending?: boolean;
 }
 
+interface AskStatus { available: boolean; engine?: 'foundry' | 'intelligence'; model?: string; grounding?: string }
+
 const SUGGESTIONS = [
-  'What was blocked in the last 24 hours, and why?',
-  'Which agents have the most would-deny decisions in observe mode?',
-  'Summarise open incidents and recommended containment.',
+  'How do lanes, policies and the PDP fit together?',
+  'What do I need to configure to monitor Foundry and Copilot Studio agents?',
+  'What is the difference between observe and enforce mode?',
 ];
 
-const CITE_ICON = { session: <ForumOutlinedIcon />, decision: <GavelRoundedIcon />, incident: <HealthAndSafetyOutlinedIcon /> };
+const CITE_ICON = { session: <ForumOutlinedIcon />, decision: <GavelRoundedIcon />, incident: <HealthAndSafetyOutlinedIcon />, doc: <DescriptionOutlinedIcon /> };
 
 let seq = 0;
 const newConversationId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `c-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-/** "Ask the monitor" chat: streams SSE from POST /api/gov/intelligence/chat. */
-export function ChatPanel({ onNavigate, dense }: { onNavigate?: () => void; dense?: boolean }) {
+function engineLabel(s: { engine?: string; model?: string } | undefined): string | null {
+  if (s?.engine === 'foundry') return `Microsoft Foundry${s.model ? ` · ${s.model}` : ''}`;
+  if (s?.engine === 'intelligence') return 'Intelligence service · Microsoft Foundry';
+  return null;
+}
+
+/**
+ * "Ask the monitor" chat: streams SSE from POST /api/gov/intelligence/chat. Answers are grounded in
+ * the project documentation (and, with the intelligence service, live monitor data) and cite pages.
+ */
+export function ChatPanel({ onNavigate, dense, initialQuestion }: { onNavigate?: () => void; dense?: boolean; initialQuestion?: string }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [unavailable, setUnavailable] = useState<string | null>(null);
+  const [meta, setMeta] = useState<{ engine?: string; model?: string } | undefined>();
   const abort = useRef<AbortController | null>(null);
   const conversationId = useRef(newConversationId());
   const scroller = useRef<HTMLDivElement>(null);
+  const askedInitial = useRef(false);
+  const status = useQuery({ queryKey: ['ask-status'], queryFn: () => api<AskStatus>('gov/intelligence/status'), staleTime: 5 * 60_000, retry: false });
+  const engine = engineLabel(meta ?? status.data);
 
   useEffect(() => () => abort.current?.abort(), []);
   useEffect(() => {
@@ -66,7 +84,8 @@ export function ChatPanel({ onNavigate, dense }: { onNavigate?: () => void; dens
         conversationId: conversationId.current,
         signal: ctrl.signal,
         onEvent: ev => {
-          if (ev.type === 'delta') patchLast(t => ({ ...t, content: t.content + (ev.text ?? '') }));
+          if (ev.type === 'meta') setMeta({ engine: ev.engine, model: ev.model });
+          else if (ev.type === 'delta') patchLast(t => ({ ...t, content: t.content + (ev.text ?? '') }));
           else if (ev.type === 'tool') patchLast(t => ({ ...t, tools: [...t.tools, { name: ev.name, args: ev.args }] }));
           else if (ev.type === 'citation') patchLast(t => (t.citations.some(c => c.kind === ev.kind && c.id === ev.id) ? t : { ...t, citations: [...t.citations, ev] }));
           else if (ev.type === 'error') patchLast(t => ({ ...t, error: ev.message }));
@@ -89,22 +108,35 @@ export function ChatPanel({ onNavigate, dense }: { onNavigate?: () => void; dens
     }
   };
 
+  // A question handed over from elsewhere (e.g. "Ask the assistant" on the Docs search page) is sent once.
+  // Deferred so a StrictMode mount/unmount cycle cancels the timer instead of aborting a live request.
+  useEffect(() => {
+    if (!initialQuestion?.trim() || askedInitial.current) return;
+    const t = setTimeout(() => { askedInitial.current = true; void send(initialQuestion); }, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuestion]);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <Box ref={scroller} sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: dense ? 2 : 0, py: 1.5 }} aria-live="polite" aria-busy={streaming} role="log" aria-label="Conversation with the monitor">
         {unavailable && (
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>Ask the monitor isn’t available</Typography>
-            <Typography variant="body2">{unavailable} Configure <code>INTELLIGENCE_URL</code> on the server to enable it.</Typography>
+            <Typography variant="body2">{unavailable} Configure a Foundry endpoint (<code>FOUNDRY_OPENAI_ENDPOINT</code>) or the intelligence service (<code>INTELLIGENCE_URL</code>) on the server to enable it.</Typography>
           </Alert>
         )}
         {turns.length === 0 && !unavailable && (
           <Stack spacing={1.5} sx={{ alignItems: 'flex-start', py: 2 }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <AutoAwesomeOutlinedIcon sx={{ color: 'primary.main' }} />
-              <Typography variant="subtitle1">Ask about agent activity and policy</Typography>
+              <Typography variant="subtitle1">Ask anything about the platform</Typography>
             </Stack>
-            <Typography variant="body2" color="text.secondary">Answers are grounded in the monitor’s data and cite sessions, decisions and incidents.</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Answers are grounded in the project <RouterLink to="/docs" onClick={onNavigate} style={{ color: 'inherit' }}>documentation</RouterLink> and cite the pages they use
+              {status.data?.engine === 'intelligence' ? ', plus live sessions, decisions and incidents' : ''}.
+            </Typography>
+            {engine && <Chip size="small" variant="outlined" icon={<AutoAwesomeOutlinedIcon />} label={engine} aria-label={`Model: ${engine}`} sx={{ '& .MuiChip-icon': { fontSize: 14 } }} />}
             {SUGGESTIONS.map(s => <Button key={s} size="small" variant="outlined" onClick={() => void send(s)} sx={{ textAlign: 'left', justifyContent: 'flex-start' }}>{s}</Button>)}
           </Stack>
         )}
@@ -124,7 +156,9 @@ export function ChatPanel({ onNavigate, dense }: { onNavigate?: () => void; dens
                   ))}
                 </Stack>
               )}
-              {t.content ? <Markdown>{t.content}</Markdown> : t.pending ? <Typography variant="body2" color="text.secondary">Thinking…</Typography> : null}
+              {t.content
+                ? <Box onClick={e => { if ((e.target as HTMLElement).closest('a[href^="/"]')) onNavigate?.(); }}><Markdown>{t.content}</Markdown></Box>
+                : t.pending ? <Typography variant="body2" color="text.secondary">Thinking…</Typography> : null}
               {t.error && <Alert severity="error" sx={{ mt: 1 }} role="alert">{t.error}</Alert>}
               {t.citations.length > 0 && (
                 <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5, mt: 1 }} aria-label="Sources">
@@ -137,7 +171,7 @@ export function ChatPanel({ onNavigate, dense }: { onNavigate?: () => void; dens
                       to={citationHref(c)}
                       onClick={onNavigate}
                       icon={CITE_ICON[c.kind]}
-                      label={c.title ?? `${c.kind} ${c.id.slice(0, 8)}`}
+                      label={c.title ?? (c.kind === 'doc' ? c.id.replace('#', ' › ') : `${c.kind} ${c.id.slice(0, 8)}`)}
                       sx={{ '& .MuiChip-icon': { fontSize: 14 } }}
                     />
                   ))}

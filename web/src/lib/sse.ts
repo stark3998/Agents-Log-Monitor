@@ -1,9 +1,13 @@
 import { authFetch } from '../auth/token';
+import { docRoute } from './docs';
+
+export type CitationKind = 'session' | 'decision' | 'incident' | 'doc';
 
 export type ChatEvent =
+  | { type: 'meta'; engine?: string; model?: string; grounding?: string }
   | { type: 'delta'; text: string }
   | { type: 'tool'; name: string; args?: unknown }
-  | { type: 'citation'; kind: 'session' | 'decision' | 'incident'; id: string; title?: string }
+  | { type: 'citation'; kind: CitationKind; id: string; title?: string }
   | { type: 'error'; message: string }
   | { type: 'done' };
 
@@ -62,8 +66,12 @@ export class ChatUnavailableError extends Error {
   constructor(message = 'Ask the monitor is not configured on this server.') { super(message); }
 }
 
-/** In-app route for a chat citation. */
-export function citationHref(c: { kind: 'session' | 'decision' | 'incident'; id: string }): string {
+/** In-app route for a chat citation (doc ids may carry a `#heading` anchor). */
+export function citationHref(c: { kind: CitationKind; id: string }): string {
+  if (c.kind === 'doc') {
+    const [docId, anchor] = c.id.split('#', 2);
+    return docRoute(docId, anchor);
+  }
   const id = encodeURIComponent(c.id);
   return c.kind === 'session' ? `/conversations?c=${id}` : c.kind === 'decision' ? `/enforcements?d=${id}` : `/incidents/${id}`;
 }

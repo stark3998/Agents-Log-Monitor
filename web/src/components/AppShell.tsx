@@ -7,6 +7,7 @@ import PolicyRoundedIcon from '@mui/icons-material/PolicyRounded';
 import HealthAndSafetyRoundedIcon from '@mui/icons-material/HealthAndSafetyRounded';
 import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
 import RadarRoundedIcon from '@mui/icons-material/RadarRounded';
+import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useThemeMode } from '../theme/ThemeModeProvider';
 import { useLiveStatus } from '../api/live';
@@ -34,6 +35,7 @@ const TABS = [
   { path: '/fleet', label: 'Fleet', gov: true, icon: <RadarRoundedIcon fontSize="small" /> },
   { path: '/jev', label: 'Jev vs LLM', gov: true, icon: <CompareArrowsRoundedIcon fontSize="small" /> },
   { path: '/ask', label: 'Ask', gov: true },
+  { path: '/docs', label: 'Docs', icon: <MenuBookRoundedIcon fontSize="small" /> },
 ];
 
 /** Pending-approvals count for the nav badge (live via gov.approval WS messages; polls as fallback). */

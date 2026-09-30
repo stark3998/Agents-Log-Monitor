@@ -31,6 +31,21 @@ function trimEndpoint(endpoint: string): string {
   return endpoint.replace(/\/+$/, '');
 }
 
+/** Chat Completions URL of a Foundry (Azure OpenAI-compatible) deployment. */
+export function foundryChatUrl(deployment: string): string {
+  const endpoint = trimEndpoint(govConfig.foundry.endpoint);
+  const apiVersion = encodeURIComponent(govConfig.foundry.apiVersion);
+  return `${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${apiVersion}`;
+}
+
+/** Request headers for Foundry: the API key when configured, else a DefaultAzureCredential bearer token. */
+export async function foundryHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (govConfig.foundry.apiKey) headers['api-key'] = govConfig.foundry.apiKey;
+  else headers.Authorization = `Bearer ${await bearerToken()}`;
+  return headers;
+}
+
 async function readError(response: Response): Promise<string> {
   try {
     return await response.text();
@@ -129,16 +144,11 @@ export class FoundryChatClient {
   }
 
   private url(deployment: string): string {
-    const endpoint = trimEndpoint(govConfig.foundry.endpoint);
-    const apiVersion = encodeURIComponent(govConfig.foundry.apiVersion);
-    return `${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${apiVersion}`;
+    return foundryChatUrl(deployment);
   }
 
-  private async headers(): Promise<Record<string, string>> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (govConfig.foundry.apiKey) headers['api-key'] = govConfig.foundry.apiKey;
-    else headers.Authorization = `Bearer ${await bearerToken()}`;
-    return headers;
+  private headers(): Promise<Record<string, string>> {
+    return foundryHeaders();
   }
 
   private body(req: ChatJsonRequest): Record<string, unknown> {

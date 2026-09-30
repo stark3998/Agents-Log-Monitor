@@ -6,7 +6,9 @@ The `intelligence/` service is a FastAPI companion to the TypeScript governance 
 
 - **Guardian investigator** polls `/api/gov/decisions` and can also be triggered through `POST /investigate`. It opens/updates incidents, investigates via the monitor MCP server, and writes a Markdown report.
 - **Lane drafter** accepts `{ agentId, description?, systemPrompt? }`, builds a recent activity baseline, drafts lane YAML, validates it, retries once on validation errors, simulates it, and creates a `proposed` lane.
-- **Ask the monitor** accepts chat messages and streams Server-Sent Events: `delta`, `tool`, `citation`, and `done`.
+- **Ask the monitor** accepts chat messages and streams Server-Sent Events: `delta`, `tool`, `citation`, and `done`. Answers are grounded in the project documentation. The service searches the monitor's docs catalog (`GET /api/docs/search?text=1`) for the latest question and attaches the top sections to the prompt. The agent can call the `search_docs` / `get_doc` MCP tools for more, and cites pages as `/docs/<id>#<anchor>` links, which become `doc` citations. It also uses the read-only monitor tools for live agents, sessions, decisions and incidents.
+
+When `INTELLIGENCE_URL` isn't set, the monitor server answers Ask itself. The built-in docs agent (`src/docs/ask-agent.ts`) does the same docs retrieval and citation, has only the doc tools, and calls the Foundry deployment `ASK_DEPLOYMENT` (default `CHAT_DEPLOYMENT`, then `JUDGE_FAST_DEPLOYMENT`) on `FOUNDRY_OPENAI_ENDPOINT`. It authenticates with `FOUNDRY_OPENAI_API_KEY` or `DefaultAzureCredential`. Reasoning deployments (`gpt-5*`, `o*`) run with `reasoning_effort=low` unless `ASK_REASONING_EFFORT` says otherwise (`off` omits it).
 - **Jev triage shadow** (opt-in via `TYPESAFE_API_KEY`) runs TypeSafe Jev next to each Guardian investigation and records a non-authoritative `guardian_triage` comparison — see below.
 
 ## Jev triage shadow

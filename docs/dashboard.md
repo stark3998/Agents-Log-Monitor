@@ -44,7 +44,15 @@ How findings, risk and severity are computed: [analytics.md](analytics.md).
 | **Policies** | `/policies`, `/policies/:id` | Tabs for Policies, Classifiers and Presets: reusable policies, 96 data classifiers with toggles and custom regex, and preset catalogs (filesystem, network, credential, capability, MCP category). See [policies.md](policies.md) and [classifiers.md](classifiers.md). |
 | **Posture** | `/posture` | Endpoint posture: findings, checks configuration, endpoints, one-click fixes. See [posture.md](posture.md). |
 | **Incidents** | `/incidents`, `/incidents/:id` | Incidents raised by the governance plane, the Guardian investigator, or the monitoring fleet (trigger `fleet:*`). The detail view shows the report, alert ids and recommendations. Containment recommendations are proposals that a human applies. |
-| **Ask** | `/ask` | "Ask the monitor": read-only chat over monitor data, served by the [intelligence service](intelligence.md). |
+| **Ask** | `/ask` | "Ask the monitor": chat that answers from the project documentation and cites the pages it used (links open in the Docs tab). With `INTELLIGENCE_URL` set it's served by the [intelligence service](intelligence.md), which can also read live monitor data. Without it, the monitor answers from the docs itself using a Microsoft Foundry deployment (`FOUNDRY_OPENAI_ENDPOINT`). `/ask?q=…` sends that question straight away. |
+
+## Documentation
+
+| Page | Route | What it shows |
+|---|---|---|
+| **Docs** | `/docs`, `/docs/<id>` | Every Markdown document in the repository (this folder, the READMEs, infrastructure and SDK docs). They're grouped into the sections of the [docs index](README.md), and anything not listed there goes under "More in the repository". The landing page lists every document with a short description. A doc page shows the rendered document, an "On this page" contents list, the pages it links to and the pages that reference it, and previous/next links. Relative links between docs open inside the tab. Links to other repository files are shown as plain text. |
+
+Docs search (`/` or Ctrl+K to focus, Enter to open the top hit, Esc to clear) ranks heading-level sections with BM25 and matches the word you're still typing as a prefix. Results jump straight to the matching heading. **Ask the assistant** hands the query over to Ask. Doc ids are the path under `docs/` without `.md` (`fleet`, `architecture/agents`), or `repo/<path>` for other files (`repo/infra/README`). The API is `GET /api/docs`, `GET /api/docs/page?id=…` and `GET /api/docs/search?q=…` (Viewer in cloud mode). The index refreshes within seconds of a file changing. Paths ignored by the root `.gitignore` (such as `eval/results/`) are excluded.
 
 ## Monitoring fleet and evaluation pages
 

@@ -88,6 +88,10 @@ class MonitorClient:
     async def list_agents(self) -> list[dict[str, Any]]:
         return await self._request("GET", "/api/gov/agents")
 
+    async def search_docs(self, query: str, *, limit: int = 6) -> dict[str, Any]:
+        """Ranked documentation sections (Markdown + in-app link) from the monitor's docs catalog."""
+        return await self._request("GET", "/api/docs/search", params={"q": query, "limit": limit, "text": 1}, timeout=10)
+
     async def get_agent(self, agent_id: str) -> dict[str, Any] | None:
         for agent in await self.list_agents():
             if agent.get("id") == agent_id:

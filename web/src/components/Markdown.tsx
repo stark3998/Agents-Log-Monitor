@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
-import { Box, Link as MuiLink } from '@mui/material';
+import { Box, Link as MuiLink, Tooltip } from '@mui/material';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
 import { Link as RouterLink } from 'react-router-dom';
+import { rehypeHeadingIds, type ResolvedLink } from '../lib/docs';
 
 /** Typography for rendered markdown (shared by the conversation timeline, incidents and chat). */
 export const markdownSx = {
@@ -20,17 +21,37 @@ export const markdownSx = {
   '& blockquote': { m: 0, pl: 1.5, borderLeft: '3px solid', borderColor: 'divider', color: 'text.secondary' },
 };
 
-/** Sanitised GitHub-flavoured markdown; in-app links (`/…`) navigate with the router. */
-export function Markdown({ children, sx }: { children: string; sx?: object }) {
+function defaultResolve(href: string): ResolvedLink {
+  return href.startsWith('/') || href.startsWith('#') ? { kind: 'internal', to: href } : { kind: 'external', href };
+}
+
+/**
+ * Sanitised GitHub-flavoured markdown; in-app links (`/…`, `#…`) navigate with the router.
+ * `resolveLink` rewrites links (e.g. relative links between docs); `headingIds` adds GitHub-style
+ * heading ids so `#anchor` links work.
+ */
+export function Markdown({ children, sx, resolveLink, headingIds }: {
+  children: string; sx?: object; resolveLink?: (href: string) => ResolvedLink; headingIds?: boolean;
+}) {
   return (
     <Box sx={{ ...markdownSx, ...sx }}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeSanitize]}
+        rehypePlugins={headingIds ? [rehypeSanitize, rehypeHeadingIds] : [rehypeSanitize]}
         components={{
-          a: ({ href, children: c }: { href?: string; children?: ReactNode }) => (href && href.startsWith('/')
-            ? <MuiLink component={RouterLink} to={href}>{c}</MuiLink>
-            : <MuiLink href={href} target="_blank" rel="noopener noreferrer">{c}</MuiLink>),
+          a: ({ href, children: c }: { href?: string; children?: ReactNode }) => {
+            const r = href ? (resolveLink ?? defaultResolve)(href) : null;
+            if (!r) return <>{c}</>;
+            if (r.kind === 'internal') return <MuiLink component={RouterLink} to={r.to}>{c}</MuiLink>;
+            if (r.kind === 'file') {
+              return (
+                <Tooltip title={`Repository file: ${r.path}`}>
+                  <Box component="span" sx={{ borderBottom: '1px dotted', borderColor: 'text.disabled', cursor: 'help' }}>{c}</Box>
+                </Tooltip>
+              );
+            }
+            return <MuiLink href={r.href} target="_blank" rel="noopener noreferrer">{c}</MuiLink>;
+          },
         }}
       >
         {children}

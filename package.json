@@ -60,6 +60,13 @@
       "public/**/*",
       "scripts/**/*",
       "package.json",
+      "README.md",
+      "docs/**/*.md",
+      "eval/README.md",
+      "infra/**/*.md",
+      "intelligence/README.md",
+      "packages/*/README.md",
+      "test/redteam/README.md",
       "!**/*.map",
       "!**/*.d.ts"
     ],

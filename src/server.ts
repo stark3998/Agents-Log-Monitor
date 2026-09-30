@@ -8,6 +8,7 @@ import { initDb, flushDb } from './db';
 import { attachWebSocket } from './broadcast';
 import ingestRouter from './routes/ingest';
 import apiRouter from './routes/api';
+import docsRouter from './docs/router';
 import { register, startPollers } from './collectors/registry';
 import { config } from './config';
 import { startAnalysisBackfill } from './pipeline';
@@ -47,6 +48,7 @@ async function main() {
   app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
   app.use('/ingest', ...(govConfig.mode === 'cloud' ? [authenticate, requireRole('Agent')] : []), ingestRouter);
   await initGovernance(app);
+  app.use('/api/docs', ...(govConfig.mode === 'cloud' ? [authenticate, requireRole('Viewer')] : []), docsRouter);
   app.use('/api', ...(govConfig.mode === 'cloud' ? [authenticate, requireRole('Viewer')] : []), apiRouter);
 
   const publicDir = resolvePublicDir();

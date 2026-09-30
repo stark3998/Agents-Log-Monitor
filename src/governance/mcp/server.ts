@@ -9,6 +9,7 @@ import { govBus } from '../events';
 import { govStore } from '../store';
 import { JEV_SHADOW_KINDS } from '../jev/stats';
 import { telemetry } from '../telemetry';
+import { docHref, getDoc, getDocSection, searchDocChunks } from '../../docs/catalog';
 import type {
   Approval, Decision, Incident, IncidentRecommendation, IncidentState, Lane, LaneRecord, LaneStatus,
   Policy, PolicyRecord, Principal, RegisteredAgent, Role, Severity, SessionIntent, Verdict,
@@ -527,6 +528,43 @@ export function createMcpServer(principal: Principal): McpServer {
         quarantined: agents.filter(a => a.status === 'quarantined').length,
       },
       cursor: decisions.cursor,
+    });
+  });
+
+  server.registerTool('search_docs', {
+    title: 'Search the product documentation',
+    description: 'Requires Viewer. Full-text (BM25) search over every Markdown document in the repository (docs/, READMEs, infra, SDKs). Returns ranked heading-level hits with the section Markdown, the doc id and an in-app link (`/docs/<id>#<anchor>`) to cite. Use it before answering questions about how the platform works, is configured or deployed.',
+    inputSchema: { query: z.string().min(1).max(200), limit: z.number().int().positive().max(20).optional() },
+    annotations: readOnly,
+  }, async ({ query, limit }) => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const hits = searchDocChunks(query, { limit: limit ?? 6, perDoc: 2 });
+    return jsonResult({
+      query,
+      hits: hits.map(h => ({
+        id: h.id, path: h.path, title: h.title, section: h.section, heading: h.heading, link: docHref(h.id, h.anchor),
+        text: h.text.length > 2500 ? `${h.text.slice(0, 2500)}…` : h.text,
+      })),
+    });
+  });
+
+  server.registerTool('get_doc', {
+    title: 'Read a documentation page',
+    description: 'Requires Viewer. Returns the Markdown of one document by id (e.g. `fleet`, `architecture/agents`, `repo/infra/README`) or repo path (`docs/fleet.md`), optionally only the section under a heading anchor, plus the docs it links to and is linked from.',
+    inputSchema: { id: z.string().min(1).max(300), anchor: z.string().max(200).optional() },
+    annotations: readOnly,
+  }, async ({ id, anchor }) => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const doc = getDoc(id);
+    if (!doc) return toolError(`document not found: ${id}`);
+    const section = anchor ? getDocSection(doc, anchor) : null;
+    if (anchor && !section) return toolError(`heading not found in ${doc.id}: ${anchor}`, { headings: doc.headings.map(h => h.slug) });
+    const content = section?.content ?? doc.content;
+    return jsonResult({
+      id: doc.id, path: doc.path, title: doc.title, section: doc.section, link: docHref(doc.id, section?.heading.slug),
+      content: content.length > 30000 ? `${content.slice(0, 30000)}\n\n…(truncated; request a heading anchor)` : content,
+      headings: doc.headings.map(h => ({ depth: h.depth, text: h.text, anchor: h.slug })),
+      links: doc.links, backlinks: doc.backlinks,
     });
   });
 

@@ -49,3 +49,14 @@ start.ps1
 **/*.tfstate
 **/*.tfstate.*
 **/.terraform
+
+# Generated benchmark output
+eval/results
+
+# Markdown documentation is kept: the Docs tab and the Ask agent read it (Dockerfile "docs" stage).
+!docs/**/*.md
+!infra/**/*.md
+!intelligence/README.md
+!packages/*/README.md
+!test/redteam/README.md
+!eval/README.md

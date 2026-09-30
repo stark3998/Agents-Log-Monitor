@@ -127,9 +127,12 @@ The fleet writes incidents through `POST` / `PATCH /api/gov/incidents` with trig
 | `POST /api/gov/hooks/copilot/uninstall` body `{ targets? }` | PolicyAdmin (not agents), local mode | Audited. Removes only this monitor's hook files. |
 
 ### Intelligence proxy — `/api/gov/intelligence` (forwards to `INTELLIGENCE_URL`)
+When `INTELLIGENCE_URL` is unset but a Foundry endpoint is configured (`FOUNDRY_OPENAI_ENDPOINT`), `chat` is answered in-process by the built-in docs agent. It uses the same SSE format and adds a leading `meta` event. With neither configured, `chat` returns 503.
+
 | Path | Description |
 |---|---|
-| `POST /api/gov/intelligence/chat` body `{ messages: [{role, content}], conversationId? }` | Server-Sent Events. Events: `data: {"type":"delta","text":…}`, `{"type":"tool","name":…,"args":…}`, `{"type":"citation","kind":"session"\|"decision"\|"incident","id":…}`, `{"type":"done"}` |
+| `GET /api/gov/intelligence/status` (Viewer) | `{ available, engine: "intelligence"\|"foundry", model?, grounding: "docs" }` |
+| `POST /api/gov/intelligence/chat` body `{ messages: [{role, content}], conversationId? }` | Server-Sent Events. Events: `data: {"type":"meta","engine":…,"model":…}` (built-in agent), `{"type":"delta","text":…}`, `{"type":"tool","name":…,"args":…}`, `{"type":"citation","kind":"doc"\|"session"\|"decision"\|"incident","id":…,"title"?:…}` (doc ids are `<doc-id>#<anchor>`), `{"type":"error","message":…}`, `{"type":"done"}` |
 | `POST /api/gov/intelligence/lanes/draft` body `{ agentId, description?, systemPrompt? }` | `{ lane: LaneRecord (status proposed), rationale, simulation }` |
 | `POST /api/gov/intelligence/investigate` body `{ incidentId }` or `{ trigger, agentIds, sessionIds, decisionIds }` | `Incident` |
 
@@ -140,6 +143,6 @@ Governance messages are added next to the existing `timeline` and `sessions.upda
 `{type:"gov.decision", decision}`, `{type:"gov.approval", approval}`, `{type:"gov.agent", agent}`, `{type:"gov.lane", lane:{id,version,status}}`, `{type:"gov.policy", policy:{id,version,status}}`, `{type:"gov.posture", endpointId}`, `{type:"gov.incident", incident}`, `{type:"gov.fleet.alerts", alerts}`.
 
 ## MCP server — `/mcp` (Streamable HTTP) and `npm run mcp` (stdio)
-Read tools (Viewer): `list_agents`, `get_agent`, `list_sessions`, `get_session_timeline`, `search_actions`, `list_decisions`, `get_decision`, `list_blocked_actions`, `list_pending_approvals`, `list_incidents`, `get_incident`, `list_lanes`, `get_lane`, `simulate_lane`, `list_policies`, `get_policy`, `simulate_policy`, `list_classifiers`, `list_policy_presets`, `list_posture_findings`, `get_endpoint_inventory`, `verify_audit_chain`, `get_overview_stats`.
+Read tools (Viewer): `list_agents`, `get_agent`, `list_sessions`, `get_session_timeline`, `search_actions`, `list_decisions`, `get_decision`, `list_blocked_actions`, `list_pending_approvals`, `list_incidents`, `get_incident`, `list_lanes`, `get_lane`, `simulate_lane`, `list_policies`, `get_policy`, `simulate_policy`, `list_classifiers`, `list_policy_presets`, `list_posture_findings`, `get_endpoint_inventory`, `verify_audit_chain`, `get_overview_stats`, `search_docs`, `get_doc`.
 
 Governed write tools: `approve_action` / `deny_action` (Approver), and `pause_agent`, `resume_agent`, `quarantine_session`, `propose_lane_change`, `propose_policy`, `create_incident`, `update_incident`, `acknowledge_incident` (PolicyAdmin, or Agent for the monitor's own Guardian). Every write tool call first goes to `decide()` with `checkpoint:"admin"`, `agent.surface:"monitor"`. `propose_lane_change` and `propose_policy` always create a `proposed` version and never activate it.

@@ -88,6 +88,8 @@ Roles:
 | `get_endpoint_inventory` | Viewer | Endpoints, or one endpoint's AI inventory (agents, MCP servers, extensions, schedules). |
 | `verify_audit_chain` | Viewer | Verify the hash-chained decision log. |
 | `get_overview_stats` | Viewer | Summarize decisions, approvals, incidents and agent states. |
+| `search_docs` | Viewer | BM25 search over every Markdown document in the repository. Returns section Markdown and an in-app link (`/docs/<id>#<anchor>`). |
+| `get_doc` | Viewer | Read one document by id or repo path, optionally only the section under a heading anchor, with its links and backlinks. |
 | `jev_shadow_summary` | Viewer | TypeSafe Jev shadow-mode comparison per kind (agreement, confusion, stricter/looser, latency, tokens, est. cost). Non-authoritative. |
 | `approve_action` | Approver | Governed approval resolution to `approved`. |
 | `deny_action` | Approver | Governed approval resolution to `denied`. |
