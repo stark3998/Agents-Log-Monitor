@@ -295,7 +295,7 @@ built or rolled out until you opt in, so existing deployments are unchanged.
   (`FLEET_MONITOR_TOKEN`, `FLEET_FOUNDRY_API_KEY`, `FLEET_TYPESAFE_API_KEY`) are GitHub environment secrets →
   `TF_VAR_fleet_*` → Key Vault → `secretRef`; never plain env vars. Auth to Azure is the managed identity
   (`FLEET_MANAGED_IDENTITY_CLIENT_ID`) — no client secret. Hooks are never anonymous; set
-  `fleet_hooks_audience` / `fleet_hooks_allowed_app_ids` (a plan-time `check` warns when the audience is empty).
+  `fleet_hooks_audience` / `fleet_hooks_allowed_app_ids` (the plan fails when hooks are enabled and the audience is empty; set `fleet_sizing.hooks_enabled = false` to run without hooks).
 - **State is ephemeral**: SQLite (WAL) at `/data` on an **EmptyDir** volume per app. Azure Files was not used
   because SQLite WAL locking is unreliable over SMB and ACA Azure Files mounts require a storage account key.
   State survives container restarts but not new revisions/replica moves; the worker then re-reads the last

@@ -510,11 +510,3 @@ module "fleet" {
   # Image pulls need AcrPull (granted to every identity in module.acr).
   depends_on = [module.acr]
 }
-
-# Hooks without an accepted audience reject every webhook call (fail closed) — surface it at plan time.
-check "fleet_hooks_auth_configured" {
-  assert {
-    condition     = !var.enable_fleet || !var.fleet_sizing.hooks_enabled || length(var.fleet_hooks_audience) > 0
-    error_message = "enable_fleet: fleet_hooks_audience is empty, so the hooks app will reject all webhook calls. Set it to the hooks app registration's app id / app id URI."
-  }
-}

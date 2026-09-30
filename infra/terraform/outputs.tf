@@ -132,6 +132,13 @@ output "fleet_app_names" {
 output "fleet_hooks_url" {
   description = "Copilot Studio webhook base URL (<url>/copilot-studio/analyze-tool-execution). Empty when disabled."
   value       = var.enable_fleet ? module.fleet[0].hooks_url : ""
+
+  # Hooks without an accepted audience reject every webhook call (fail closed), so fail the plan instead.
+  # (A precondition rather than a top-level `check` block: tfsec cannot parse `check` blocks.)
+  precondition {
+    condition     = !var.enable_fleet || !var.fleet_sizing.hooks_enabled || length(var.fleet_hooks_audience) > 0
+    error_message = "enable_fleet: fleet_hooks_audience is empty, so the hooks app would reject all webhook calls. Set it to the hooks app registration's app id / app id URI, or set fleet_sizing.hooks_enabled = false."
+  }
 }
 
 output "fleet_identity_client_id" {

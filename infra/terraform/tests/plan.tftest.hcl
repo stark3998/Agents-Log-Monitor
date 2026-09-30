@@ -187,5 +187,5 @@ run "fleet_flags_missing_hooks_audience" {
     fleet_image_tag = "0123456789abcdef0123456789abcdef01234567"
   }
 
-  expect_failures = [check.fleet_hooks_auth_configured]
+  expect_failures = [output.fleet_hooks_url]
 }

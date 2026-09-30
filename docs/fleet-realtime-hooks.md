@@ -131,7 +131,7 @@ FLEET_HOOKS_ALLOWED_APP_IDS=["<app-id-guid-from-step-2>"]
 FLEET_HOOKS_MODE=observe
 ```
 
-In Terraform, set `fleet_hooks_audience`, `fleet_hooks_allowed_app_ids` and `fleet_hooks_mode`. A plan-time check warns when the audience is empty.
+In Terraform, set `fleet_hooks_audience`, `fleet_hooks_allowed_app_ids` and `fleet_hooks_mode`. The plan fails when hooks are enabled and the audience is empty, because every webhook call would be rejected; set `fleet_sizing.hooks_enabled = false` to deploy without hooks.
 
 ### 4. Connect in the Power Platform admin center
 
