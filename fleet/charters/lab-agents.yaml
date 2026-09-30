@@ -1,0 +1,92 @@
+# Charter overrides for monitored agents.
+#
+# The fleet derives each agent's charter (purpose, use cases, allowed/forbidden capabilities, destinations) from its
+# definition with gpt-5.5. Entries here take precedence field-by-field. Match by agent name glob or exact agent id,
+# optionally restricted to a platform (foundry | copilot_studio | azure_openai).
+#
+# Capabilities: read_data write_data delete_data exec_code exec_shell net_egress download_exec exfil cred_access
+#   persistence priv_esc defense_evasion destructive recon send_message identity_admin cloud_admin search knowledge
+#   agent_delegation model_inference unknown
+#
+# enforce: true      -> real-time hooks (Copilot Studio webhook, Foundry MCP approval, Agent Framework middleware)
+#                       BLOCK when the verdict score >= block_threshold (default FLEET_HOOKS_BLOCK_THRESHOLD).
+# enforce: false     -> observe: allow and alert (default).
+
+- match: "agentmon-vendor-research*"
+  platform: foundry
+  purpose: Research enterprise software vendors from public web sources and the internal vendor directory.
+  use_cases:
+    - id: vendor_profile
+      description: Summarize a named vendor's products, pricing and compliance posture from public sources.
+      expected_capabilities: [search, net_egress, read_data]
+    - id: vendor_lookup
+      description: Look up a vendor's record (owner, contract tier, risk rating) in the internal vendor directory API.
+      expected_capabilities: [net_egress, read_data]
+  allowed_capabilities: [search, net_egress, read_data, knowledge, model_inference]
+  forbidden_capabilities: [exec_code, exec_shell, send_message, write_data, delete_data, cred_access, exfil]
+  allowed_destinations: [bing.com, api.bing.microsoft.com, vendors.agentmon.lab]
+  out_of_scope: [HR or payroll questions, writing code, sending e-mail, changing vendor records]
+  enforce: false
+
+- match: "agentmon-data-analyst*"
+  platform: foundry
+  purpose: Analyse CSV/tabular data the user uploads and produce statistics and charts with the code interpreter.
+  use_cases:
+    - id: describe_data
+      description: Compute descriptive statistics, group-bys and trends over uploaded data.
+      expected_capabilities: [exec_code, read_data]
+    - id: visualize
+      description: Produce charts from uploaded data.
+      expected_capabilities: [exec_code, write_data]
+  allowed_capabilities: [exec_code, read_data, write_data, knowledge, model_inference]
+  forbidden_capabilities: [net_egress, exec_shell, cred_access, exfil, persistence, priv_esc, defense_evasion,
+                           download_exec, recon, destructive]
+  allowed_destinations: []
+  out_of_scope: [network access, reading system files, installing packages, credential handling]
+  enforce: false
+
+- match: "agentmon-it-helpdesk*"
+  platform: foundry
+  purpose: Answer IT support questions and open or look up helpdesk tickets through the IT MCP server.
+  use_cases:
+    - id: ticket_lookup
+      description: Look up the status of an existing IT ticket.
+      expected_capabilities: [read_data, net_egress]
+    - id: ticket_create
+      description: Open a new IT ticket on behalf of the user.
+      expected_capabilities: [write_data, net_egress]
+    - id: how_to
+      description: Explain standard IT procedures (VPN, MFA enrolment, password reset self-service).
+      expected_capabilities: [knowledge]
+  allowed_capabilities: [read_data, write_data, net_egress, knowledge, model_inference]
+  forbidden_capabilities: [identity_admin, cred_access, priv_esc, exec_shell, delete_data, exfil, cloud_admin]
+  out_of_scope: [resetting other users' passwords, granting admin rights, disabling MFA, running scripts]
+  enforce: false
+
+- match: "AgentMon HR Policy*"
+  platform: copilot_studio
+  purpose: Answer employee questions about HR policies from the HR policy knowledge base.
+  use_cases:
+    - id: policy_qa
+      description: Answer questions about leave, benefits, travel and conduct policies.
+      expected_capabilities: [knowledge]
+  allowed_capabilities: [knowledge, model_inference]
+  forbidden_capabilities: [net_egress, send_message, write_data, delete_data, exec_code, exec_shell, cred_access, exfil]
+  out_of_scope: [individual salary data, other employees' records, legal advice]
+  enforce: false
+
+- match: "AgentMon IT Ops*"
+  platform: copilot_studio
+  purpose: Help IT staff check service status and create change tickets through approved connectors.
+  use_cases:
+    - id: service_status
+      description: Check the status of an internal service via the status HTTP action.
+      expected_capabilities: [net_egress, read_data]
+    - id: change_ticket
+      description: Create a change ticket for a planned maintenance.
+      expected_capabilities: [write_data, net_egress]
+  allowed_capabilities: [net_egress, read_data, write_data, knowledge, model_inference]
+  forbidden_capabilities: [identity_admin, cred_access, exfil, destructive, exec_shell, cloud_admin]
+  allowed_destinations: [vendors.agentmon.lab, status.agentmon.lab]
+  out_of_scope: [deleting resources, changing permissions, exporting user lists]
+  enforce: false

@@ -56,21 +56,24 @@ locals {
   serverless = var.capacity_mode == "serverless"
 
   # Container => partition key path (see plan: data model / Cosmos partition keys).
+  # jev_shadow: non-authoritative TypeSafe Jev shadow comparisons (pk = sessionId or "tenant:<id>").
   containers = {
-    lanes     = "/tenantId"
-    agents    = "/tenantId"
-    sessions  = "/sessionId"
-    decisions = "/sessionId"
-    audit     = "/tenantId"
-    approvals = "/tenantId"
-    incidents = "/tenantId"
-    outbox    = "/box"
-    events    = "/sessionId"
-    posture   = "/tenantId"
+    lanes      = "/tenantId"
+    agents     = "/tenantId"
+    sessions   = "/sessionId"
+    decisions  = "/sessionId"
+    audit      = "/tenantId"
+    approvals  = "/tenantId"
+    incidents  = "/tenantId"
+    outbox     = "/box"
+    events     = "/sessionId"
+    posture    = "/tenantId"
+    jev_shadow = "/pk"
+    fleet      = "/tenantId"
   }
 
-  # TTL: -1 = enabled but items never expire unless they carry their own `ttl` (outbox, events).
-  ttl_enabled = toset(["outbox", "events"])
+  # TTL: -1 = enabled but items never expire unless they carry their own `ttl` (outbox, events, jev_shadow).
+  ttl_enabled = toset(["outbox", "events", "jev_shadow"])
 
   # Built-in data-plane role: Cosmos DB Built-in Data Contributor.
   data_contributor_role_id = "00000000-0000-0000-0000-000000000002"

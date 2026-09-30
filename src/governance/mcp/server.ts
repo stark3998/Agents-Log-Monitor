@@ -7,6 +7,7 @@ import { hasRole } from '../auth';
 import { decide } from '../pdp';
 import { govBus } from '../events';
 import { govStore } from '../store';
+import { JEV_SHADOW_KINDS } from '../jev/stats';
 import { telemetry } from '../telemetry';
 import type {
   Approval, Decision, Incident, IncidentRecommendation, IncidentState, Lane, LaneRecord, LaneStatus,
@@ -478,6 +479,20 @@ export function createMcpServer(principal: Principal): McpServer {
     }
     const ep = await govStore().getPostureEndpoint(endpointId);
     return ep ? jsonResult(ep) : toolError(`endpoint not found: ${endpointId}`);
+  });
+
+  server.registerTool('jev_shadow_summary', {
+    title: 'Get TypeSafe Jev shadow comparison summary',
+    description: 'Requires Viewer. Per-kind comparison of non-authoritative TypeSafe Jev shadow answers against the authoritative decision makers (Foundry judge, Prompt Shields, Guardian, heuristics, and the AgentMon Fleet\'s real-time gate / intent / alignment / evasion / injection / code checks): agreement rate, confusion matrix, stricter/looser disagreements, latency percentiles, tokens and estimated cost. Kinds: judge, injection, guardian_triage, session_score, fleet_realtime, fleet_intent, fleet_alignment, fleet_evasion, fleet_injection, fleet_code. Aggregates up to 20k newest records in the window.',
+    inputSchema: {
+      since: z.string().optional(), until: z.string().optional(),
+      kind: z.array(z.enum(JEV_SHADOW_KINDS)).optional(),
+    },
+    annotations: readOnly,
+  }, async input => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const { buildShadowSummary } = await import('../jev/summary');
+    return jsonResult(await buildShadowSummary(govStore(), { since: input.since, until: input.until, kind: input.kind }));
   });
 
   server.registerTool('verify_audit_chain', {

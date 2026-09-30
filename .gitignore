@@ -16,3 +16,11 @@ test/e2e/.tmp/
 .playwright-mcp/
 
 fleet/.venv/
+
+# Benchmark outputs (scripts/eval-compare.ts, intelligence eval_triage)
+eval/results/
+# Fleet Jev shadow mirror (when the fleet runs from the repo root)
+fleet-jev-shadow.jsonl
+
+# local service logs
+monitor-server.*

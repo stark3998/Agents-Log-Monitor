@@ -88,6 +88,7 @@ Roles:
 | `get_endpoint_inventory` | Viewer | Endpoints, or one endpoint's AI inventory (agents, MCP servers, extensions, schedules). |
 | `verify_audit_chain` | Viewer | Verify the hash-chained decision log. |
 | `get_overview_stats` | Viewer | Summarize decisions, approvals, incidents and agent states. |
+| `jev_shadow_summary` | Viewer | TypeSafe Jev shadow-mode comparison per kind (agreement, confusion, stricter/looser, latency, tokens, est. cost). Non-authoritative. |
 | `approve_action` | Approver | Governed approval resolution to `approved`. |
 | `deny_action` | Approver | Governed approval resolution to `denied`. |
 | `pause_agent` | PolicyAdmin/Guardian | Governed pause of a registered agent. |

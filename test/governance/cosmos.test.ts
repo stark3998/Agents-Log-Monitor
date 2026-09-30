@@ -78,6 +78,7 @@ class FakeContainer {
   }
   private pk(doc: Doc): string {
     if (this.id === 'outbox') return String(doc.box);
+    if (this.id === 'jev_shadow') return String(doc.pk);
     if (this.id === 'decisions' || this.id === 'sessions' || this.id === 'events') return String(doc.sessionId);
     return String(doc.tenantId);
   }
@@ -91,6 +92,7 @@ class FakeQuery {
     const params = new Map<string, any>((this.q.parameters ?? []).map((p: any) => [p.name, p.value]));
     let rows = this.c.allDocs().filter(d => matches(d, sql, params));
     if (sql.includes('ORDER BY c.createdAt DESC')) rows.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    else if (sql.includes('ORDER BY c.created_at DESC')) rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     else if (sql.includes('ORDER BY c.createdAt ASC')) rows.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
     else if (sql.includes('ORDER BY c.requestedAt DESC')) rows.sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt)));
     else if (sql.includes('ORDER BY c.lane.version DESC')) rows.sort((a, b) => (b.lane?.version ?? 0) - (a.lane?.version ?? 0));
@@ -120,9 +122,18 @@ function matches(d: Doc, sql: string, p: Map<string, any>) {
   if (sql.includes('c.wouldDeny = @wouldDeny') && d.wouldDeny !== p.get('@wouldDeny')) return false;
   if (sql.includes('c.createdAt >= @since') && d.createdAt < p.get('@since')) return false;
   if (sql.includes('c.createdAt < @until') && d.createdAt >= p.get('@until')) return false;
+  if (sql.includes('c.createdAt < @before') && d.createdAt >= p.get('@before')) return false;
+  if (sql.includes('ARRAY_CONTAINS(@kind') && !p.get('@kind').includes(d.kind)) return false;
+  if (sql.includes('c.agree = @agree') && d.agree !== p.get('@agree')) return false;
   if (sql.includes('c.seq >= @fromSeq') && d.seq < p.get('@fromSeq')) return false;
   if (sql.includes('ARRAY_CONTAINS(@state') && !p.get('@state').includes(d.state)) return false;
   if (sql.includes('ARRAY_CONTAINS(c.agentIds') && !d.agentIds?.includes(p.get('@agentId'))) return false;
+  if (sql.includes("c.kind = 'fleet_alert'") && d.kind !== 'fleet_alert') return false;
+  if (sql.includes('ARRAY_CONTAINS(@severity') && !p.get('@severity').includes(d.severity)) return false;
+  if (sql.includes('ARRAY_CONTAINS(@types') && !p.get('@types').includes(d.alert_type)) return false;
+  if (sql.includes('ARRAY_CONTAINS(@platform') && !p.get('@platform').includes(d.platform)) return false;
+  if (sql.includes('c.session_id = @sid') && d.session_id !== p.get('@sid')) return false;
+  if (sql.includes('c.created_at >= @since') && d.created_at < p.get('@since')) return false;
   if (sql.includes('c.box = @box')) {
     if (d.box !== p.get('@box')) return false;
     if (d.claimedAt && d.claimedAt >= p.get('@stale')) return false;
@@ -131,7 +142,7 @@ function matches(d: Doc, sql: string, p: Map<string, any>) {
 }
 function clone<T>(v: T): T { return JSON.parse(JSON.stringify(v)); }
 function fakeStore(extra?: Partial<Record<string, FakeContainer>>) {
-  const containers = Object.fromEntries(['lanes', 'agents', 'sessions', 'decisions', 'audit', 'approvals', 'incidents', 'outbox', 'posture'].map(n => [n, new FakeContainer(n)])) as Record<string, FakeContainer>;
+  const containers = Object.fromEntries(['lanes', 'agents', 'sessions', 'decisions', 'audit', 'approvals', 'incidents', 'outbox', 'posture', 'jev_shadow', 'fleet'].map(n => [n, new FakeContainer(n)])) as Record<string, FakeContainer>;
   Object.assign(containers, extra);
   return { store: new CosmosGovernanceStore({ tenantId: 't1', containers: containers as any, maxChainRetries: 5 }), containers };
 }
@@ -143,6 +154,21 @@ const decision = (id: string, sessionId = 's1', at = '2026-01-01T00:00:00.000Z')
 });
 
 describe('CosmosGovernanceStore', () => {
+  it('upserts fleet alerts idempotently and filters them', async () => {
+    const { store } = fakeStore();
+    await store.init();
+    const base = { alert_type: 'GOAL_DRIFT', score: 70, title: 't', summary: 's', detector: 'intent', platform: 'foundry' };
+    await store.upsertFleetAlerts([
+      { ...base, alert_id: 'f1', severity: 'high', session_id: 'c1', created_at: '2026-09-30T10:00:00.000Z' },
+      { ...base, alert_id: 'f2', severity: 'low', session_id: 'c2', created_at: '2026-09-30T11:00:00.000Z' },
+    ]);
+    await store.upsertFleetAlerts([{ ...base, alert_id: 'f1', severity: 'critical', session_id: 'c1', created_at: '2026-09-30T10:00:00.000Z' }]);
+    const all = await store.listFleetAlerts();
+    expect(all.map(a => a.alert_id)).toEqual(['f2', 'f1']);
+    expect((await store.listFleetAlerts({ severity: ['critical'] })).map(a => a.alert_id)).toEqual(['f1']);
+    expect((await store.listFleetAlerts({ sessionId: 'c2' }))[0].severity).toBe('low');
+    expect((await store.getFleetAlert('f1'))?.severity).toBe('critical');
+  });
   it('serializes concurrent audit appends and retries 412/head conflicts', async () => {
     const { store, containers } = fakeStore();
     await store.init();
@@ -227,6 +253,33 @@ describe('CosmosGovernanceStore', () => {
     await store.saveLane(rec1); await store.saveLane(rec2);
     expect((await store.getLane('lane-a'))?.lane.version).toBe(2);
     expect(await store.listLaneVersions('lane-a')).toHaveLength(2);
+  });
+
+  it('stores, filters, pages and prunes Jev shadow records outside the audit chain', async () => {
+    const { store, containers } = fakeStore();
+    await store.init();
+    const rec = (id: string, at: string, extra: Record<string, unknown> = {}) => ({
+      id, kind: 'judge' as const, createdAt: at, baseline: { provider: 'foundry' as const, verdict: 'allow' }, jev: { model: 'jev-1.13.0', verdict: 'allow', latencyMs: 5, signals: {} }, agree: true, ...extra,
+    });
+    await store.appendJevShadow(rec('j1', '2026-01-01T00:00:01.000Z', { sessionId: 's1' }));
+    await store.appendJevShadow(rec('j2', '2026-01-01T00:00:02.000Z', { agree: false }));
+    await store.appendJevShadow(rec('j3', '2026-01-01T00:00:03.000Z', { kind: 'injection', sessionId: 's2' }));
+    // Insert-only: a second write with an existing id is a no-op (409 swallowed), never an overwrite.
+    await store.appendJevShadow(rec('j1', '2026-01-01T00:00:09.000Z', { sessionId: 's1', agree: false, kind: 'injection' }));
+    expect(containers.jev_shadow.allDocs().find(d => d.id === 'j1')).toMatchObject({ kind: 'judge', agree: true, createdAt: '2026-01-01T00:00:01.000Z' });
+    const stored = containers.jev_shadow.allDocs();
+    expect(stored.map(d => d.pk).sort()).toEqual(['s1', 's2', 'tenant:t1']);
+    expect(stored.every(d => typeof d.ttl === 'number' && d.ttl > 0)).toBe(true);
+    const p1 = await store.queryJevShadow({ limit: 2 });
+    expect(p1.items.map(r => r.id)).toEqual(['j3', 'j2']);
+    expect(p1.items[0]).not.toHaveProperty('pk');
+    expect(p1.items[0]).not.toHaveProperty('tenantId');
+    expect(p1.items[0].kind).toBe('injection');
+    expect((await store.queryJevShadow({ limit: 2, cursor: p1.cursor })).items.map(r => r.id)).toEqual(['j1']);
+    expect((await store.queryJevShadow({ kind: ['judge'], agree: false })).items.map(r => r.id)).toEqual(['j2']);
+    expect(await store.pruneJevShadow('2026-01-01T00:00:02.500Z')).toBe(2);
+    expect((await store.queryJevShadow({})).items.map(r => r.id)).toEqual(['j3']);
+    expect(containers.audit.allDocs().filter(d => d.kind === 'audit-decision')).toHaveLength(0);
   });
 
   const maybeIt = process.env.COSMOS_ENDPOINT ? it : it.skip;

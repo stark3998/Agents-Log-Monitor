@@ -106,6 +106,21 @@ describe('Foundry policy judge', () => {
     expect(seenBody.temperature).toBe(0);
     expect(seenBody.max_tokens).toBeGreaterThan(0);
     expect(verdict).toMatchObject({ verdict: 'allow', model: 'gpt-4.1-mini', tier: 'fast', laneClause: expect.stringContaining('Allowed') });
+    expect(verdict.provider).toBe('foundry');
+    expect(verdict.usage).toBeUndefined();
+  });
+
+  it('captures chat completion token usage on the verdict', async () => {
+    const content = JSON.stringify({ verdict: 'allow', confidence: 0.9, rationale: 'ok', lane_clause: 'purpose' });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content } }],
+      usage: { prompt_tokens: 1234, completion_tokens: 56, total_tokens: 1290 },
+    }), { status: 200 })));
+
+    const { judge } = await importJudgeWithEnv({ FOUNDRY_OPENAI_API_KEY: 'key-1' });
+    const verdict = await judge.evaluate(input(), 'fast', 1000);
+
+    expect(verdict).toMatchObject({ provider: 'foundry', usage: { inputTokens: 1234, outputTokens: 56 } });
   });
 
   it('uses bearer auth and reasoning-model token parameters for gpt-5 deployments', async () => {

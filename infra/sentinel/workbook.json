@@ -1,0 +1,162 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": { "json": "## AgentMon Fleet — Foundry & Copilot Studio agent monitoring\nAlerts written by the monitoring fleet to `AgentMonAlerts_CL`, mapped to OWASP LLM Top 10, OWASP Agentic Top 10 and MITRE ATLAS." },
+      "name": "title"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          { "id": "p-time", "version": "KqlParameterItem/1.0", "name": "TimeRange", "label": "Time range", "type": 4, "isRequired": true,
+            "value": { "durationMs": 604800000 },
+            "typeSettings": { "selectableValues": [ { "durationMs": 3600000 }, { "durationMs": 86400000 }, { "durationMs": 604800000 }, { "durationMs": 2592000000 } ] } },
+          { "id": "p-platform", "version": "KqlParameterItem/1.0", "name": "Platform", "type": 2, "multiSelect": true, "quote": "'", "delimiter": ",",
+            "query": "AgentMonAlerts_CL | where TimeGenerated {TimeRange} | distinct Platform | order by Platform asc",
+            "typeSettings": { "additionalResourceOptions": [ "value::all" ], "showDefault": false }, "defaultValue": "value::all",
+            "queryType": 0, "resourceType": "microsoft.operationalinsights/workspaces" },
+          { "id": "p-severity", "version": "KqlParameterItem/1.0", "name": "Severity", "type": 2, "multiSelect": true, "quote": "'", "delimiter": ",",
+            "jsonData": "[\"critical\",\"high\",\"medium\",\"low\",\"informational\"]",
+            "typeSettings": { "additionalResourceOptions": [ "value::all" ], "showDefault": false }, "defaultValue": "value::all" }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AgentMonAlerts_CL\n| where TimeGenerated {TimeRange}\n| where Platform in ({Platform}) and Severity in ({Severity})\n| summarize Alerts = count() by Severity\n| extend Order = case(Severity == 'critical', 0, Severity == 'high', 1, Severity == 'medium', 2, Severity == 'low', 3, 4)\n| order by Order asc",
+        "size": 4,
+        "title": "Alerts by severity",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "tiles",
+        "tileSettings": { "titleContent": { "columnMatch": "Severity" }, "leftContent": { "columnMatch": "Alerts", "formatter": 12 }, "showBorder": true }
+      },
+      "name": "tiles-severity"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AgentMonAlerts_CL\n| where TimeGenerated {TimeRange}\n| where Platform in ({Platform}) and Severity in ({Severity})\n| summarize Alerts = count() by AlertType, bin(TimeGenerated, {TimeRange:grain})",
+        "size": 0,
+        "title": "Alert types over time",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      },
+      "customWidth": "60",
+      "name": "timechart-types"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AgentMonAlerts_CL\n| where TimeGenerated {TimeRange}\n| where Platform in ({Platform}) and Severity in ({Severity})\n| mv-expand Owasp = OwaspAgentic to typeof(string)\n| where isnotempty(Owasp)\n| summarize Alerts = count() by Owasp\n| order by Alerts desc",
+        "size": 0,
+        "title": "OWASP Agentic Top 10",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "barchart"
+      },
+      "customWidth": "40",
+      "name": "bar-owasp-agentic"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AgentMonAlerts_CL\n| where TimeGenerated {TimeRange}\n| where Platform in ({Platform}) and Severity in ({Severity})\n| summarize Alerts = count(), Critical = countif(Severity == 'critical'), High = countif(Severity == 'high'), MaxScore = max(Score), Sessions = dcount(SessionId), Types = make_set(AlertType, 8), Last = max(TimeGenerated) by Agent = coalesce(AgentName, AgentId, '-'), Platform\n| order by Critical desc, High desc, Alerts desc",
+        "size": 0,
+        "title": "Agents",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "gridSettings": { "formatters": [ { "columnMatch": "MaxScore", "formatter": 8, "formatOptions": { "min": 0, "max": 100, "palette": "greenRed" } } ] }
+      },
+      "customWidth": "60",
+      "name": "table-agents"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AgentMonAlerts_CL\n| where TimeGenerated {TimeRange}\n| where Platform in ({Platform}) and Severity in ({Severity})\n| mv-expand Technique = MitreAtlas to typeof(string)\n| where isnotempty(Technique)\n| summarize Alerts = count() by Technique\n| order by Alerts desc",
+        "size": 0,
+        "title": "MITRE ATLAS techniques",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "barchart"
+      },
+      "customWidth": "40",
+      "name": "bar-atlas"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AgentMonAlerts_CL\n| where TimeGenerated {TimeRange}\n| where Platform in ({Platform}) and isnotempty(SessionId)\n| summarize RiskScore = sum(Score), Alerts = count(), Types = make_set(AlertType, 10), Agent = take_any(coalesce(AgentName, AgentId)), User = take_any(UserId), Start = min(TimeGenerated), End = max(TimeGenerated) by SessionId\n| top 25 by RiskScore desc",
+        "size": 0,
+        "title": "Riskiest sessions",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "gridSettings": { "formatters": [ { "columnMatch": "RiskScore", "formatter": 4, "formatOptions": { "palette": "orange" } } ] }
+      },
+      "name": "table-sessions"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AgentMonAlerts_CL\n| where TimeGenerated {TimeRange}\n| where AlertType in ('BLOCKED_ACTION_WORKAROUND', 'SOCIAL_ENGINEERING_USER', 'REPEATED_BLOCKED_ATTEMPTS', 'USER_PERSISTENCE_AFTER_BLOCK', 'JAILBREAK_ATTEMPT')\n| summarize Alerts = count() by AlertType, Actor = iff(AlertType in ('USER_PERSISTENCE_AFTER_BLOCK', 'JAILBREAK_ATTEMPT'), 'user', 'agent')\n| order by Alerts desc",
+        "size": 1,
+        "title": "Evasion: agent workarounds vs user persistence",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "customWidth": "50",
+      "name": "table-evasion"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "union isfuzzy=true (datatable(TimeGenerated: datetime, AlertName: string, AlertSeverity: string, Resource: string)[]), (SecurityAlert | where TimeGenerated {TimeRange} | where AlertType startswith 'AI.Azure_' | project TimeGenerated, AlertName, AlertSeverity, Resource = tostring(split(ResourceId, '/')[-1]))\n| order by TimeGenerated desc\n| take 100",
+        "size": 1,
+        "title": "Microsoft Defender for AI alerts (AI.Azure_*)",
+        "noDataMessage": "No Defender for AI alerts in this workspace (enable Defender for AI services and the Defender for Cloud connector).",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "customWidth": "50",
+      "name": "table-defender"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AgentMonAlerts_CL\n| where TimeGenerated {TimeRange}\n| where Platform in ({Platform}) and Severity in ({Severity})\n| project TimeGenerated, Severity, Score, AlertType, Agent = coalesce(AgentName, AgentId), Platform, SessionId, UserId, Summary, OwaspAgentic, MitreAtlas, IncidentId\n| order by TimeGenerated desc\n| take 500",
+        "size": 0,
+        "title": "Recent alerts",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "gridSettings": { "filter": true, "formatters": [ { "columnMatch": "Score", "formatter": 8, "formatOptions": { "min": 0, "max": 100, "palette": "greenRed" } } ] }
+      },
+      "name": "table-recent"
+    }
+  ],
+  "fallbackResourceIds": [ "{workspaceResourceId}" ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

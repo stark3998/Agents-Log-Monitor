@@ -66,10 +66,29 @@ class Settings:
     guardian_poll_seconds: float = field(default_factory=lambda: _float("GUARDIAN_POLL_SECONDS", 30.0))
     guardian_enabled: bool = field(default_factory=lambda: _bool("GUARDIAN_ENABLED", True))
     appinsights_connection_string: str = field(default_factory=lambda: os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING", ""))
+    # TypeSafe Jev (System One) — shadow mode only; never changes Guardian behaviour.
+    typesafe_api_key: str = field(default_factory=lambda: os.getenv("TYPESAFE_API_KEY", ""))
+    typesafe_base_url: str = field(default_factory=lambda: os.getenv("TYPESAFE_BASE_URL", ""))
+    # Pinned, versioned model: combine thresholds are tuned per version (jev-latest moves).
+    jev_model: str = field(default_factory=lambda: os.getenv("JEV_MODEL", "") or "jev-1.13.0")
+    jev_timeout_ms: float = field(default_factory=lambda: _float("JEV_TIMEOUT_MS", 2000.0))
+    jev_shadow: bool = field(default_factory=lambda: _bool("JEV_SHADOW", True))
+    jev_shadow_guardian: bool = field(default_factory=lambda: _bool("JEV_SHADOW_GUARDIAN", True))
 
     def __post_init__(self) -> None:
         if self.guardian_authority not in {"recommend", "contain", "autonomous"}:
             object.__setattr__(self, "guardian_authority", "recommend")
+        if self.jev_timeout_ms <= 0:
+            object.__setattr__(self, "jev_timeout_ms", 2000.0)
+
+    @property
+    def jev_enabled(self) -> bool:
+        """Jev shadow is on only when a key is configured and ``JEV_SHADOW`` is not switched off."""
+        return bool(self.typesafe_api_key) and self.jev_shadow
+
+    @property
+    def jev_guardian_enabled(self) -> bool:
+        return self.jev_enabled and self.jev_shadow_guardian
 
 
 def load_settings() -> Settings:

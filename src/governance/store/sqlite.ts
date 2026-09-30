@@ -2,12 +2,24 @@ import crypto from 'crypto';
 import { all, exec, get, run, transaction } from '../../db';
 import { GENESIS_HASH, hashDecision, verifyChain } from '../audit';
 import type {
-  Approval, Decision, Incident, LaneRecord, LaneStatus, PolicyRecord, PostureEndpointRecord, PostureFindingRecord,
-  RegisteredAgent, SessionIntent,
+  Approval, Decision, FleetAlert, FleetAlertQuery, Incident, LaneRecord, LaneStatus, PolicyRecord, PostureEndpointRecord,
+  PostureFindingRecord, RegisteredAgent, SessionIntent,
 } from '../types';
 import type {
   ApprovalQuery, AuditVerifyResult, DecisionQuery, GovernanceStore, IncidentQuery, Page, PostureFindingQuery, SettingDoc,
 } from './repository';
+import type { JevShadowQuery, JevShadowRecord } from '../jev/types';
+
+/** Opaque keyset cursor for newest-first shadow pages: base64url("<createdAt>\n<id>"). */
+function encodeJevCursor(createdAt: string, id: string): string {
+  return Buffer.from(`${createdAt}\n${id}`, 'utf8').toString('base64url');
+}
+function decodeJevCursor(cursor: string | undefined): { createdAt: string; id: string } | undefined {
+  if (!cursor) return undefined;
+  const raw = Buffer.from(cursor, 'base64url').toString('utf8');
+  const i = raw.indexOf('\n');
+  return i > 0 ? { createdAt: raw.slice(0, i), id: raw.slice(i + 1) } : undefined;
+}
 
 type VersionRow = { doc: string; status: string; yaml: string | null; updated_at: string; updated_by: string | null };
 
@@ -79,6 +91,19 @@ export class SqliteGovernanceStore implements GovernanceStore {
         updated_at TEXT NOT NULL,
         doc        TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS gov_fleet_alerts (
+        id          TEXT PRIMARY KEY,
+        alert_type  TEXT NOT NULL,
+        severity    TEXT NOT NULL,
+        platform    TEXT NOT NULL,
+        agent       TEXT,
+        session_id  TEXT,
+        incident_id TEXT,
+        created_at  TEXT NOT NULL,
+        doc         TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_gov_fleet_alerts_time ON gov_fleet_alerts(created_at);
+      CREATE INDEX IF NOT EXISTS idx_gov_fleet_alerts_session ON gov_fleet_alerts(session_id);
       CREATE TABLE IF NOT EXISTS gov_outbox (
         id         TEXT PRIMARY KEY,
         box        TEXT NOT NULL,
@@ -122,7 +147,60 @@ export class SqliteGovernanceStore implements GovernanceStore {
       );
       CREATE INDEX IF NOT EXISTS idx_gov_posture_find_ep ON gov_posture_findings(endpoint_id, state);
       CREATE INDEX IF NOT EXISTS idx_gov_posture_find_state ON gov_posture_findings(state, severity);
+      -- Jev shadow comparisons: non-authoritative benchmark records, NOT part of the audit chain.
+      CREATE TABLE IF NOT EXISTS gov_jev_shadow (
+        id          TEXT PRIMARY KEY,
+        kind        TEXT NOT NULL,
+        decision_id TEXT,
+        session_id  TEXT,
+        lane_id     TEXT,
+        agree       INTEGER,
+        created_at  TEXT NOT NULL,
+        doc         TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_gov_jev_created ON gov_jev_shadow(created_at, id);
+      CREATE INDEX IF NOT EXISTS idx_gov_jev_kind    ON gov_jev_shadow(kind, created_at);
+      CREATE INDEX IF NOT EXISTS idx_gov_jev_session ON gov_jev_shadow(session_id);
     `);
+  }
+
+  // ── Jev shadow (non-authoritative) ───────────────────────────────────────
+
+  async appendJevShadow(r: JevShadowRecord): Promise<JevShadowRecord> {
+    // Insert-only: an existing id is never overwritten (shadow data feeds promotion metrics).
+    run(`INSERT INTO gov_jev_shadow (id, kind, decision_id, session_id, lane_id, agree, created_at, doc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      [r.id, r.kind, r.decisionId ?? null, r.sessionId ?? null, r.laneId ?? null, r.agree == null ? null : r.agree ? 1 : 0, r.createdAt, JSON.stringify(r)]);
+    return r;
+  }
+
+  async queryJevShadow(q: JevShadowQuery): Promise<Page<JevShadowRecord>> {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (q.kind?.length) { where.push(`kind IN (${q.kind.map(() => '?').join(',')})`); params.push(...q.kind); }
+    if (q.sessionId) { where.push('session_id = ?'); params.push(q.sessionId); }
+    if (q.laneId) { where.push('lane_id = ?'); params.push(q.laneId); }
+    if (q.agree != null) { where.push('agree = ?'); params.push(q.agree ? 1 : 0); }
+    if (q.since) { where.push('created_at >= ?'); params.push(q.since); }
+    if (q.until) { where.push('created_at < ?'); params.push(q.until); }
+    const after = decodeJevCursor(q.cursor);
+    if (after) { where.push('(created_at < ? OR (created_at = ? AND id < ?))'); params.push(after.createdAt, after.createdAt, after.id); }
+    const limit = Math.min(Math.max(q.limit ?? 50, 1), 1000);
+    const rows = all<{ id: string; created_at: string; doc: string }>(
+      `SELECT id, created_at, doc FROM gov_jev_shadow ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY created_at DESC, id DESC LIMIT ?`,
+      [...params, limit + 1],
+    );
+    const items = rows.slice(0, limit).map(r => JSON.parse(r.doc) as JevShadowRecord);
+    const last = rows[limit - 1];
+    return { items, cursor: rows.length > limit && last ? encodeJevCursor(last.created_at, last.id) : undefined };
+  }
+
+  async pruneJevShadow(before: string): Promise<number> {
+    return transaction(() => {
+      run('DELETE FROM gov_jev_shadow WHERE created_at < ?', [before]);
+      return Number(get<{ n: number }>('SELECT changes() AS n')?.n ?? 0);
+    });
   }
 
   // ── Posture ──────────────────────────────────────────────────────────────
@@ -462,6 +540,45 @@ export class SqliteGovernanceStore implements GovernanceStore {
     ).map(r => JSON.parse(r.doc) as Incident);
     if (q.agentId) items = items.filter(i => i.agentIds.includes(q.agentId!));
     return items;
+  }
+
+  // ── Fleet alerts ─────────────────────────────────────────────────────────
+
+  async upsertFleetAlerts(alerts: FleetAlert[]): Promise<number> {
+    return transaction(() => {
+      for (const a of alerts) {
+        run(`INSERT INTO gov_fleet_alerts (id, alert_type, severity, platform, agent, session_id, incident_id, created_at, doc)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET severity = excluded.severity, incident_id = excluded.incident_id, doc = excluded.doc`,
+        [a.alert_id, a.alert_type, a.severity, a.platform, a.agent_name ?? a.agent_id ?? null, a.session_id ?? null,
+          a.incident_id ?? null, a.created_at, JSON.stringify(a)]);
+      }
+      return alerts.length;
+    });
+  }
+
+  async getFleetAlert(id: string): Promise<FleetAlert | undefined> {
+    const r = get<{ doc: string }>('SELECT doc FROM gov_fleet_alerts WHERE id = ?', [id]);
+    return r ? JSON.parse(r.doc) : undefined;
+  }
+
+  async listFleetAlerts(q: FleetAlertQuery = {}): Promise<FleetAlert[]> {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    const inList = (col: string, vals?: string[]) => {
+      if (vals?.length) { where.push(`${col} IN (${vals.map(() => '?').join(',')})`); params.push(...vals); }
+    };
+    inList('severity', q.severity);
+    inList('alert_type', q.alertType);
+    inList('platform', q.platform);
+    if (q.agent) { where.push('agent = ?'); params.push(q.agent); }
+    if (q.sessionId) { where.push('session_id = ?'); params.push(q.sessionId); }
+    if (q.incidentId) { where.push('incident_id = ?'); params.push(q.incidentId); }
+    if (q.since) { where.push('created_at >= ?'); params.push(q.since); }
+    return all<{ doc: string }>(
+      `SELECT doc FROM gov_fleet_alerts ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY created_at DESC LIMIT ?`,
+      [...params, Math.min(q.limit ?? 200, 2000)],
+    ).map(r => JSON.parse(r.doc) as FleetAlert);
   }
 
   // ── Outboxes ─────────────────────────────────────────────────────────────

@@ -53,6 +53,7 @@ def create_app(settings: Settings | None = None, runner: Any | None = None, moni
                     await bg_task
                 except asyncio.CancelledError:
                     pass
+            await guardian.aclose()
             if hasattr(runner, "aclose"):
                 await runner.aclose()
             if owned_monitor:
@@ -62,7 +63,11 @@ def create_app(settings: Settings | None = None, runner: Any | None = None, moni
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
-        return {"ok": True, "guardian": {"enabled": settings.guardian_enabled, "authority": settings.guardian_authority}}
+        return {
+            "ok": True,
+            "guardian": {"enabled": settings.guardian_enabled, "authority": settings.guardian_authority},
+            "jev": {"guardianShadow": settings.jev_guardian_enabled, "model": settings.jev_model},
+        }
 
     @app.post("/chat")
     async def post_chat(req: ChatRequest) -> StreamingResponse:

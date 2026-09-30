@@ -20,12 +20,14 @@
     "gateway": "node dist/gateway/main.js",
     "test:gov": "vitest run test/governance",
     "eval:redteam": "vitest run test/redteam",
+    "eval:compare": "ts-node scripts/eval-compare.ts",
     "posture": "node dist/posture/cli.js"
   },
   "dependencies": {
     "@azure/cosmos": "^4.10.1",
     "@azure/identity": "^4.4.0",
     "@modelcontextprotocol/sdk": "^1.31.0",
+    "@typesafe-ai/sdk": "^0.6.0",
     "compression": "^1.8.2",
     "express": "^4.18.3",
     "ioredis": "^6.0.0",

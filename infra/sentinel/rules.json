@@ -1,0 +1,73 @@
+[
+  {
+    "id": "agentmon-fleet-high-severity",
+    "displayName": "AgentMon Fleet - high or critical agent alert",
+    "description": "A high or critical alert from the AgentMon monitoring fleet about a Foundry, Copilot Studio or direct-inference caller. One Sentinel alert per fleet alert; incidents are grouped by agent session.",
+    "severity": "High",
+    "queryFrequency": "PT5M",
+    "queryPeriod": "PT15M",
+    "tactics": ["Execution", "DefenseEvasion"],
+    "query": "AgentMonAlerts_CL\n| where Severity in (\"high\", \"critical\")\n| extend SentinelSeverity = iff(Severity == \"critical\", \"High\", \"Medium\")\n| extend CallerIp = tostring(Evidence.caller_ip), CallerObjectId = tostring(Evidence.caller)\n| extend OwaspAgenticS = strcat_array(OwaspAgentic, \",\"), MitreAtlasS = strcat_array(MitreAtlas, \",\")\n| project TimeGenerated, AlertId, AlertType, Severity, SentinelSeverity, Score, Title, Summary, Platform, AgentName, AgentId, SessionId, UserId, IncidentId, CallerIp, CallerObjectId, OwaspAgenticS, MitreAtlasS"
+  },
+  {
+    "id": "agentmon-fleet-evasion",
+    "displayName": "AgentMon Fleet - agent worked around a block",
+    "description": "After a policy, guardrail, DLP, approval or 401/403 denial the agent retried the same effect another way (alternate tool, encoding, split steps) or asked the user to do it.",
+    "severity": "High",
+    "queryFrequency": "PT5M",
+    "queryPeriod": "PT15M",
+    "tactics": ["DefenseEvasion"],
+    "query": "AgentMonAlerts_CL\n| where AlertType in (\"BLOCKED_ACTION_WORKAROUND\", \"SOCIAL_ENGINEERING_USER\", \"REPEATED_BLOCKED_ATTEMPTS\")\n| extend SentinelSeverity = iff(Severity in (\"high\", \"critical\"), \"High\", \"Medium\")\n| extend OwaspAgenticS = strcat_array(OwaspAgentic, \",\"), MitreAtlasS = strcat_array(MitreAtlas, \",\")\n| project TimeGenerated, AlertId, AlertType, Severity, SentinelSeverity, Score, Title, Summary, Platform, AgentName, AgentId, SessionId, UserId, IncidentId, OwaspAgenticS, MitreAtlasS"
+  },
+  {
+    "id": "agentmon-fleet-exfiltration",
+    "displayName": "AgentMon Fleet - possible data exfiltration by an agent",
+    "description": "An agent sent data to a destination outside its charter allowlist, or a tool call matched exfiltration effects.",
+    "severity": "High",
+    "queryFrequency": "PT5M",
+    "queryPeriod": "PT15M",
+    "tactics": ["Exfiltration"],
+    "query": "AgentMonAlerts_CL\n| where AlertType in (\"DATA_EXFILTRATION\", \"UNAPPROVED_DESTINATION\")\n| extend Destination = tostring(coalesce(Evidence.destination, Evidence.dest_host, Evidence.host))\n| extend SentinelSeverity = iff(AlertType == \"DATA_EXFILTRATION\", \"High\", \"Medium\")\n| extend OwaspAgenticS = strcat_array(OwaspAgentic, \",\"), MitreAtlasS = strcat_array(MitreAtlas, \",\")\n| project TimeGenerated, AlertId, AlertType, Severity, SentinelSeverity, Score, Title, Summary, Platform, AgentName, AgentId, SessionId, UserId, IncidentId, Destination, OwaspAgenticS, MitreAtlasS"
+  },
+  {
+    "id": "agentmon-fleet-injection-then-action",
+    "displayName": "AgentMon Fleet - prompt injection followed by a risky action in the same session",
+    "description": "Indirect prompt injection was suspected in a session and, within 30 minutes, the same session raised a forbidden capability, exfiltration, goal drift or workaround alert (the XPIA kill chain).",
+    "severity": "High",
+    "queryFrequency": "PT15M",
+    "queryPeriod": "PT1H",
+    "tactics": ["InitialAccess", "Execution"],
+    "query": "let window = 30m;\nlet injections = AgentMonAlerts_CL\n| where AlertType == \"PROMPT_INJECTION_SUSPECTED\" and isnotempty(SessionId)\n| project InjectionTime = TimeGenerated, SessionId, InjectionSummary = Summary;\nAgentMonAlerts_CL\n| where AlertType in (\"FORBIDDEN_CAPABILITY\", \"DATA_EXFILTRATION\", \"GOAL_DRIFT\", \"BLOCKED_ACTION_WORKAROUND\", \"UNAPPROVED_DESTINATION\", \"CREDENTIAL_ACCESS\")\n| where isnotempty(SessionId)\n| join kind=inner injections on SessionId\n| where TimeGenerated between (InjectionTime .. (InjectionTime + window))\n| summarize TimeGenerated = max(TimeGenerated), FollowOn = make_set(AlertType), MaxScore = max(Score), InjectionSummary = take_any(InjectionSummary), AgentName = take_any(AgentName), AgentId = take_any(AgentId), Platform = take_any(Platform), UserId = take_any(UserId), IncidentId = take_any(IncidentId) by SessionId\n| extend SentinelSeverity = \"High\", Title = strcat(\"Injection then \", strcat_array(FollowOn, \", \")), Summary = InjectionSummary, FollowOnS = strcat_array(FollowOn, \",\")\n| project TimeGenerated, SessionId, SentinelSeverity, Title, Summary, FollowOnS, MaxScore, AgentName, AgentId, Platform, UserId, IncidentId"
+  },
+  {
+    "id": "agentmon-fleet-user-persistence-multi-agent",
+    "displayName": "AgentMon Fleet - user probing several agents after refusals",
+    "description": "The same user raised persistence-after-block or jailbreak alerts on two or more different agents within 24 hours.",
+    "severity": "Medium",
+    "queryFrequency": "PT1H",
+    "queryPeriod": "P1D",
+    "tactics": ["InitialAccess", "Reconnaissance"],
+    "query": "AgentMonAlerts_CL\n| where AlertType in (\"USER_PERSISTENCE_AFTER_BLOCK\", \"JAILBREAK_ATTEMPT\", \"INTENT_OUT_OF_SCOPE\") and isnotempty(UserId)\n| summarize TimeGenerated = max(TimeGenerated), Agents = make_set(coalesce(AgentName, AgentId)), Types = make_set(AlertType), Alerts = count(), Sessions = dcount(SessionId) by UserId\n| where array_length(Agents) >= 2 and (set_has_element(Types, \"USER_PERSISTENCE_AFTER_BLOCK\") or set_has_element(Types, \"JAILBREAK_ATTEMPT\"))\n| extend SentinelSeverity = \"Medium\", Title = strcat(\"User probed \", array_length(Agents), \" agents\"), Summary = strcat(UserId, \" raised \", Alerts, \" alerts (\", strcat_array(Types, \", \"), \") across \", strcat_array(Agents, \", \")), AgentsS = strcat_array(Agents, \",\")\n| project TimeGenerated, UserId, SentinelSeverity, Title, Summary, AgentsS, Alerts, Sessions"
+  },
+  {
+    "id": "agentmon-fleet-telemetry-tampering",
+    "displayName": "AgentMon Fleet - monitoring disabled or sensitive change on AI resources",
+    "description": "Diagnostic settings, Log Analytics data or App Insights for AI resources were deleted, or content filters, keys, role assignments or Key Vaults for AI resources changed.",
+    "severity": "Medium",
+    "queryFrequency": "PT15M",
+    "queryPeriod": "PT1H",
+    "tactics": ["DefenseEvasion", "PrivilegeEscalation"],
+    "query": "AgentMonAlerts_CL\n| where AlertType in (\"TELEMETRY_TAMPERING\", \"SENSITIVE_CONTROL_PLANE_OP\")\n| extend Operation = tostring(Evidence.operation), Caller = tostring(Evidence.caller), CallerIp = tostring(Evidence.caller_ip), ResourceId = tostring(Evidence.resource_id)\n| extend SentinelSeverity = iff(AlertType == \"TELEMETRY_TAMPERING\", \"High\", \"Medium\")\n| project TimeGenerated, AlertId, AlertType, Severity, SentinelSeverity, Score, Title, Summary, Operation, Caller, CallerIp, ResourceId"
+  },
+  {
+    "id": "agentmon-fleet-shadow-inference-defender",
+    "displayName": "AgentMon Fleet - unregistered model caller also flagged by Defender for AI",
+    "description": "An identity calling models directly (not a registered agent or allow-listed app) on an AI account that also has a Microsoft Defender for AI (AI.Azure_*) alert in the same 24 hours.",
+    "severity": "High",
+    "sentinelOnly": true,
+    "queryFrequency": "PT1H",
+    "queryPeriod": "P1D",
+    "tactics": ["InitialAccess", "CredentialAccess"],
+    "query": "let defender = union isfuzzy=true (datatable(DefenderTime: datetime, Resource: string, DefenderAlert: string, DefenderSeverity: string)[]), (SecurityAlert | where AlertType startswith \"AI.Azure_\" | extend Resource = tolower(tostring(split(ResourceId, \"/\")[-1])) | project DefenderTime = TimeGenerated, Resource, DefenderAlert = AlertName, DefenderSeverity = AlertSeverity);\nAgentMonAlerts_CL\n| where AlertType in (\"UNREGISTERED_INFERENCE_CALLER\", \"INFERENCE_ANOMALY\", \"ACCESS_DENIED_BURST\")\n| extend Resource = tolower(tostring(Evidence.resource)), Caller = tostring(Evidence.caller)\n| join kind=inner defender on Resource\n| summarize TimeGenerated = max(TimeGenerated), FleetTypes = make_set(AlertType), DefenderAlerts = make_set(DefenderAlert), Callers = make_set(Caller) by Resource\n| extend SentinelSeverity = \"High\", Title = strcat(\"Unregistered model use + Defender alert on \", Resource), Summary = strcat(\"Fleet: \", strcat_array(FleetTypes, \", \"), \"; Defender: \", strcat_array(DefenderAlerts, \", \"), \"; callers: \", strcat_array(Callers, \", \")), CallersS = strcat_array(Callers, \",\")\n| project TimeGenerated, Resource, SentinelSeverity, Title, Summary, CallersS"
+  }
+]

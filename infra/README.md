@@ -41,7 +41,7 @@ enforcers (the same TypeScript codebase in `local` mode) sync lanes down and eve
 | `identity` | One user-assigned managed identity per app (`control-plane`, `mcp-gateway`, `intelligence`) |
 | `acr` | Container Registry (admin disabled), AcrPull for each identity, AcrPush for the deployer |
 | `keyvault` | Key Vault (RBAC, purge protection, 90-day soft delete), secrets, **per-secret** `Key Vault Secrets User` assignments |
-| `cosmos` | Cosmos DB NoSQL account (serverless or autoscale, local auth disabled, continuous backup), database `agentgov`, 9 containers, `Cosmos DB Built-in Data Contributor` |
+| `cosmos` | Cosmos DB NoSQL account (serverless or autoscale, local auth disabled, continuous backup), database `agentgov`, 11 containers, `Cosmos DB Built-in Data Contributor` |
 | `redis` | Azure Managed Redis (TLS only), connection URL written to Key Vault |
 | `content_safety` | Content Safety account (local auth disabled), `Cognitive Services User` |
 | `foundry_access` | Reads the **existing** Foundry account; `Cognitive Services OpenAI User` (+ `Azure AI User` for intelligence when a project is set) |
@@ -58,6 +58,7 @@ enforcers (the same TypeScript codebase in `local` mode) sync lanes down and eve
 | posture | `/tenantId` | Endpoint posture: endpoints + inventories (`kind: endpoint`) and findings (`kind: finding`) |
 | sessions, decisions, events | `/sessionId` | `events` has TTL enabled (per-item `ttl`) |
 | outbox | `/box` | TTL enabled |
+| jev_shadow | `/pk` | TypeSafe Jev shadow comparisons (non-authoritative, not in the audit chain). `pk` = sessionId or `tenant:<id>`; per-item `ttl` = `JEV_SHADOW_RETENTION_DAYS` |
 
 Indexing: everything except `/args/*`, `/judge/*`, `/payload/*`; composite index `(tenantId ASC, createdAt DESC)`.
 
@@ -267,6 +268,45 @@ Set `min_replicas = 0` for the gateway in dev to save more (adds cold-start late
   the approval-gated job. Restrict repository read access accordingly.
 - Scanning: tfsec + Checkov on `infra/` (justified exceptions are inline next to each resource), Trivy on the
   filesystem and on every image (CRITICAL fails the pipeline, before the image is pushed).
+
+## Monitoring fleet (optional)
+
+The Python fleet (`fleet/`, image `agentgov/fleet:<git-sha>`) is **off by default** — nothing is planned,
+built or rolled out until you opt in, so existing deployments are unchanged.
+
+- **Enable**: set the repository variable `ENABLE_FLEET=true` (repo-level, so the `<env>-plan` and `<env>`
+  environments agree). *Deploy* then builds/scans/pushes the fleet image and plans with
+  `-var enable_fleet=true -var fleet_image_tag=<sha>`. Setting `enable_fleet = true` in tfvars alone fails
+  the plan (no image tag) instead of creating apps with a missing image.
+- **What gets created** (`modules/fleet`): user-assigned identity `id-<prefix>-<env>-fleet` (AcrPull; Key Vault
+  Secrets User on its own secrets only), Container App `<prefix>-<env>-fleet` (`agentmon-fleet run`, no
+  ingress, exactly 1 replica) and `<prefix>-<env>-fleet-hooks` (`agentmon-fleet hooks`, port 8787, external
+  ingress, `GET /health`; Copilot Studio webhook = `terraform output fleet_hooks_url` +
+  `/copilot-studio/analyze-tool-execution`).
+- **RBAC (read-only + one publisher)**: Log Analytics Reader on the workspace, Monitoring Reader + Security
+  Reader on each `fleet_scope_subscriptions` entry (default: this subscription), Azure AI User on
+  `foundry_account_id` + `fleet_foundry_account_ids`, Storage Blob Data Reader on
+  `fleet_diagnostics_storage_account_id`, Monitoring Metrics Publisher on `fleet_alerts_dcr_resource_id`,
+  Monitoring Reader on `fleet_monitored_resource_ids`. Owner/Contributor/UAA are rejected by a precondition.
+  Dataverse transcripts need the identity (`terraform output fleet_identity_client_id`) added as a Dataverse
+  **application user** in the Power Platform environment — not managed by Terraform.
+- **Config**: all `FLEET_*` settings come from `fleet_*` variables (see `variables.tf`); list settings are
+  JSON-encoded. `FLEET_MONITOR_URL` defaults to this deployment's control plane. Secrets
+  (`FLEET_MONITOR_TOKEN`, `FLEET_FOUNDRY_API_KEY`, `FLEET_TYPESAFE_API_KEY`) are GitHub environment secrets →
+  `TF_VAR_fleet_*` → Key Vault → `secretRef`; never plain env vars. Auth to Azure is the managed identity
+  (`FLEET_MANAGED_IDENTITY_CLIENT_ID`) — no client secret. Hooks are never anonymous; set
+  `fleet_hooks_audience` / `fleet_hooks_allowed_app_ids` (a plan-time `check` warns when the audience is empty).
+- **State is ephemeral**: SQLite (WAL) at `/data` on an **EmptyDir** volume per app. Azure Files was not used
+  because SQLite WAL locking is unreliable over SMB and ACA Azure Files mounts require a storage account key.
+  State survives container restarts but not new revisions/replica moves; the worker then re-reads the last
+  `FLEET_LOOKBACK_MINUTES` of logs, so a few duplicate alerts are possible after a rollout. Keep
+  `fleet_sizing.hooks_max_replicas = 1` unless you accept per-replica session context.
+
+```powershell
+terraform -chdir=infra/terraform output fleet_app_names
+curl.exe -fsS "$(terraform -chdir=infra/terraform output -raw fleet_hooks_url)/health"   # {"ok":true,...}
+az containerapp logs show -n agentgov-dev-fleet -g rg-agentgov-dev --tail 50
+```
 
 ## How to verify this worked
 

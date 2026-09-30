@@ -6,7 +6,7 @@ import { DB_PATH } from '../db';
 import { resolveEnvFile } from '../env-path';
 import { extractFeatures, type ActionFeatures } from './features';
 import { systemGuard, type SystemGuardContext } from './system-guard';
-import type { JudgeInput, RuleEvaluation, RuleMatch } from './contracts';
+import type { JudgeInput, RuleEvaluation, RuleMatch, ShieldResult } from './contracts';
 import type { ActionRequest, Decision, FailMode, JudgeVerdict, Lane, LaneMode, RegisteredAgent, Verdict } from './types';
 import { govConfig } from './config';
 import { govBus } from './events';
@@ -20,6 +20,8 @@ import { approvals } from './approvals';
 import { govStore } from './store';
 import { canonicalJson } from './audit';
 import { policyDir } from './policies/loader';
+import { jevConfig } from './jev/config';
+import { shadowInjection, shadowJudge, shouldShadowJudge } from './jev/shadow';
 
 export interface DecideOptions {
   blocking: boolean;
@@ -42,6 +44,8 @@ interface Candidate {
   observed?: { ruleIds: string[]; reasons: string[] };
   /** Non-blocking alert rules that matched. */
   alerts?: { ruleIds: string[]; descriptions: string[] };
+  /** Judge triggers when the action was judge-gated (judge ran, cache hit, or no judge configured). Jev shadow only; never affects the decision. */
+  shadowTriggers?: string[];
 }
 
 interface CacheEntry { candidate: Candidate; expires: number }
@@ -232,7 +236,9 @@ async function chooseCandidate(lane: Lane, agent: RegisteredAgent, intent: Await
   const globalKey = cacheKey(lane, req, f, tainted, 'global');
   const sessionKey = cacheKey(lane, req, f, tainted, 'session');
   const cached = getCache(globalKey) ?? getCache(sessionKey);
-  if (cached) return decorate(cached);
+  // Jev shadow bookkeeping only: marks judge-gated outcomes (not used by the decision itself).
+  const gated = (c: Candidate): Candidate => (triggers.length ? { ...c, shadowTriggers: triggers } : c);
+  if (cached) return gated(decorate(cached));
 
   // Without a configured judge, only elevated actions (medium+ risk or a tainted session) fall to the
   // fail mode; routine judge-gated work (e.g. `npm test`) continues to the allow rules / lane default.
@@ -241,20 +247,20 @@ async function chooseCandidate(lane: Lane, agent: RegisteredAgent, intent: Await
     const judged = await runJudge(lane, intent, req, f, tainted, triggers, start, opts);
     const override = judgeMode !== mode ? judgeMode : undefined;
     if (judged.verdict === 'escalate' && judgeMode !== 'observe') {
-      return human(lane, agent, req, f, judged.reason, start, opts, judgeMode).then(h => decorate({ ...h, judge: judged.judge, ruleIds: judged.ruleIds, modeOverride: override }));
+      return human(lane, agent, req, f, judged.reason, start, opts, judgeMode).then(h => gated(decorate({ ...h, judge: judged.judge, ruleIds: judged.ruleIds, modeOverride: override })));
     }
     const out: Candidate = { ...judged, modeOverride: override };
     addCache(sessionKey, out);
-    return decorate(out);
+    return gated(decorate(out));
   }
   if (allowMatches.length) {
     const c: Candidate = { verdict: 'allow', stage: 'rules_allow', reason: allowMatches[0].description, ruleIds: allowMatches.map(m => m.ruleId), cacheable: true };
-    addCache(globalKey, c); return decorate(c);
+    addCache(globalKey, c); return gated(decorate(c));
   }
   const verdict: Verdict = lane.defaultVerdict === 'deny' ? 'deny' : lane.defaultVerdict === 'judge' ? failVerdict(lane, f.category, f.riskLevel) : 'allow';
   const noJudge = triggers.length > 0 && !judge.available;
   const c: Candidate = { verdict, stage: lane.defaultVerdict === 'judge' ? 'fail_mode' : 'default', reason: lane.defaultVerdict === 'deny' ? 'Lane default deny' : noJudge ? 'Lane default allow (judge not configured; no elevated risk)' : 'Lane default allow', ruleIds: noJudge ? triggers : [], cacheable: true };
-  addCache(globalKey, c); return decorate(c);
+  addCache(globalKey, c); return gated(decorate(c));
 }
 async function append(req: ActionRequest, agent: RegisteredAgent, lane: Lane, f: ActionFeatures, candidate: Candidate, mode: LaneMode, tainted: boolean, start: number): Promise<Decision> {
   const decisionMode = candidate.modeOverride ?? mode;
@@ -279,6 +285,20 @@ async function append(req: ActionRequest, agent: RegisteredAgent, lane: Lane, f:
   return saved;
 }
 
+/** Fire-and-forget Jev shadow of a chooseCandidate outcome. Never throws, never awaits, O(1) on the hot path. */
+function maybeShadowJudge(decision: Decision, candidate: Candidate, lane: Lane, intent: Awaited<ReturnType<typeof intentTracker.get>>, req: ActionRequest, f: ActionFeatures): void {
+  try {
+    if (!jevConfig.shadow.enabled) return;
+    if (candidate.stage === 'kill_switch' || candidate.stage === 'limits') return;
+    const triggers = candidate.shadowTriggers?.length
+      ? candidate.shadowTriggers
+      : jevConfig.shadow.scope === 'governed' && (req.checkpoint === 'pre_tool' || req.checkpoint === 'spawn') ? ['shadow-governed'] : undefined;
+    if (!triggers || !shouldShadowJudge()) return;
+    // Built lazily inside the queued task: redaction/serialization of args never runs in decide().
+    shadowJudge(decision, () => judgeInput(lane, intent, req, f, !!intent.taint, triggers), candidate.judge, { presampled: true });
+  } catch { /* shadow must never affect the decision */ }
+}
+
 export async function decide(req: ActionRequest, opts: DecideOptions): Promise<Decision> {
   const start = Date.now();
   let lane: Lane = BUILTIN_DEFAULT_LANE;
@@ -297,11 +317,17 @@ export async function decide(req: ActionRequest, opts: DecideOptions): Promise<D
     }
     if (req.checkpoint === 'tool_result') {
       const scan = lane.promptShields?.scan ?? ['NETWORK', 'MCP'];
-      if ((lane.promptShields?.enabled ?? true) && scan.includes(f.category) && shields.available && req.result) {
+      const scanEnabled = (lane.promptShields?.enabled ?? true) && scan.includes(f.category);
+      let shield: ShieldResult | null = null;
+      if (scanEnabled && shields.available && req.result) {
         const res = await shields.scanDocuments([req.result], intent.goal).catch(() => null);
+        shield = res;
         if (res?.attackDetected) intent = await intentTracker.taint(intent, res.detail || 'Prompt injection detected', req.requestId, lane.promptShields?.taintTtlActions ?? 20);
       }
       const d = await append(req, agent, lane, f, { verdict: 'allow', stage: 'not_governed', reason: 'Tool result observed', ruleIds: [] }, mode, !!intent.taint, start);
+      if (scanEnabled && req.result) {
+        try { shadowInjection({ decision: d, toolOutput: req.result, goal: intent.goal, tool: f.toolName, category: f.category, shield, laneDataPolicy: lane.judge.dataPolicy }); } catch { /* shadow only */ }
+      }
       return d;
     }
     if (req.checkpoint === 'response') {
@@ -322,6 +348,7 @@ export async function decide(req: ActionRequest, opts: DecideOptions): Promise<D
 
     const candidate = await chooseCandidate(lane, agent, intent, req, f, mode, start, opts);
     const d = await append(req, agent, lane, f, candidate, mode, !!intent.taint, start);
+    maybeShadowJudge(d, candidate, lane, intent, req, f);
     await intentTracker.recordAction(withReqTokens(intent, req), f, d.verdict);
     return d;
   } catch (err) {

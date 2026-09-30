@@ -327,6 +327,11 @@ def analyze_snippet(snippet: CodeSnippet, deob: DeobResult | None = None) -> Cod
         k = (f.rule_id, f.in_decoded_layer)
         if k not in uniq or uniq[k].weight < f.weight:
             uniq[k] = f
+    caps = {f.capability for f in uniq.values()}
+    if Capability.CRED_ACCESS in caps and caps & {Capability.NET_EGRESS, Capability.EXFIL} and analysis.destinations:
+        uniq[("combo.cred_egress", False)] = Finding(
+            "combo.cred_egress", Capability.EXFIL, 85, "Reads secrets and sends data to a remote host",
+            f"secrets -> {analysis.destinations[0]}")
     analysis.findings = sorted(uniq.values(), key=lambda f: -f.weight)
     return analysis
 

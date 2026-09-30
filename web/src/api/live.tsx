@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, useSyncExternal
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { ConversationDetail, LiveUpdate, TimelineItem } from './types';
 import { applyApprovalUpdate, govKeys, type Approval, type Decision, type Incident, type RegisteredAgent } from './governance';
+import { fleetKeys, type FleetAlert } from './fleet';
 import { getAccessToken } from '../auth/token';
 
 type Status = 'connecting' | 'live' | 'offline';
@@ -40,7 +41,8 @@ type GovMessage =
   | { type: 'gov.lane'; lane: { id: string; version: number; status: string } }
   | { type: 'gov.policy'; policy?: { id: string; version: number; status: string } }
   | { type: 'gov.posture'; findingId?: string; endpointId?: string }
-  | { type: 'gov.incident'; incident: Incident };
+  | { type: 'gov.incident'; incident: Incident }
+  | { type: 'gov.fleet.alerts'; alerts: FleetAlert[] };
 
 /** Append a live decision to the per-session cache that drives conversation timeline badges. */
 export function applyGovDecision(qc: QueryClient, d: Decision): void {
@@ -71,6 +73,10 @@ export function handleGovMessage(qc: QueryClient, msg: GovMessage): string[] {
     case 'gov.incident':
       if (msg.incident?.id) qc.setQueryData(govKeys.incident(msg.incident.id), msg.incident);
       return ['incidents', 'overview'];
+    case 'gov.fleet.alerts':
+      // Seed per-alert caches (drawer), then refresh summary / lists / session timelines under ['gov', 'fleet'].
+      for (const a of msg.alerts ?? []) if (a?.alert_id) qc.setQueryData(fleetKeys.alert(a.alert_id), a);
+      return ['fleet'];
   }
   return [];
 }

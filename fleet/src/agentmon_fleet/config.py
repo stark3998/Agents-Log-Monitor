@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -66,13 +66,58 @@ class Settings(BaseSettings):
     lookback_minutes: int = 24 * 60
     overlap_minutes: int = 45
     min_alert_severity: Literal["informational", "low", "medium", "high", "critical"] = "low"
+    llm_budget_per_cycle: int = 60
+    redact_pii: bool = True
+    events_jsonl: str | None = Field(default=None, description="Optional path to mirror normalized events (debugging)")
+    alerts_jsonl: str | None = Field(default="fleet-alerts.jsonl", description="Local alert log; empty to disable")
+
+    # Inference / network sentinel
+    known_callers: list[str] = Field(default_factory=list,
+                                     description="Entra object ids allowed to call models directly (apps, pipelines)")
+    inference_hourly_token_alert: int = 250_000
+    denied_burst_threshold: int = 20
+    network_allowed_destinations: list[str] = Field(default_factory=list)
+
+    # Deep content collection is limited to these Foundry projects (endpoint substrings); empty = all accessible.
+    content_projects: list[str] = Field(default_factory=list)
+
+    # Charter overrides (*.yaml). Default: fleet/charters in a source checkout; set explicitly for installed packages.
+    charter_dir: str | None = None
+
+    # Optional tenant-level collectors (collectors/tenant.py); each needs admin-consented app permissions.
+    tenant_purview: bool = False
+    purview_start_subscription: bool = False  # let the fleet start the Audit.General subscription
+    tenant_entra: bool = False
+    tenant_defender: bool = False
 
     # Real-time hooks
-    hooks_audience: str | None = Field(default=None, description="Expected aud for Copilot Studio webhook tokens")
+    hooks_audience: list[str] = Field(default_factory=list,
+                                      description="Accepted aud values for webhook tokens (app id URI / base URL / app id)")
     hooks_allowed_app_ids: list[str] = Field(default_factory=list, description="Caller app IDs allowed to call hooks")
     hooks_allow_anonymous: bool = False
+    hooks_token: str | None = Field(default=None, description="Shared bearer for /evaluate and /events (local/dev)")
     hooks_block_threshold: int = 70
-    hooks_mode: Literal["observe", "enforce"] = "enforce"
+    hooks_mode: Literal["observe", "enforce"] = "observe"  # per-agent charters can opt in to enforce
+    hooks_deadline_ms: int = 850
+
+    # TypeSafe Jev (System One) — SHADOW MODE ONLY: answers are recorded for benchmarking and never change
+    # verdicts/alerts. Enabled when a key is set and jev_mode != off. The key also reads plain TYPESAFE_API_KEY.
+    jev_mode: Literal["off", "shadow"] = "shadow"
+    typesafe_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("FLEET_TYPESAFE_API_KEY", "TYPESAFE_API_KEY", "typesafe_api_key"))
+    typesafe_base_url: str | None = Field(
+        default=None, validation_alias=AliasChoices("FLEET_TYPESAFE_BASE_URL", "TYPESAFE_BASE_URL", "typesafe_base_url"))
+    jev_model: str = "jev-1.13.0"  # pinned: thresholds in jev_questions.py are tuned for this version
+    jev_timeout_s: float = 2.0  # offline detectors (per call, hard deadline)
+    jev_realtime_timeout_s: float = 0.3  # real-time hook path (per call, hard deadline, no retries)
+    jev_budget_per_cycle: int = 2000
+    jev_shadow_post: bool = True  # POST shadow records to {monitor_url}/api/gov/jev/shadow
+    jev_shadow_jsonl: str | None = Field(default="fleet-jev-shadow.jsonl",
+                                         description="Local shadow-record log; empty to disable")
+
+    @property
+    def jev_enabled(self) -> bool:
+        return bool((self.typesafe_api_key or "").strip()) and self.jev_mode != "off"
 
     @property
     def project_account_endpoint(self) -> str | None:

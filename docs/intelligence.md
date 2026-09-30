@@ -7,6 +7,11 @@ The `intelligence/` service is a FastAPI companion to the TypeScript governance 
 - **Guardian investigator** polls `/api/gov/decisions` and can also be triggered through `POST /investigate`. It opens/updates incidents, investigates via the monitor MCP server, and writes a Markdown report.
 - **Lane drafter** accepts `{ agentId, description?, systemPrompt? }`, builds a recent activity baseline, drafts lane YAML, validates it, retries once on validation errors, simulates it, and creates a `proposed` lane.
 - **Ask the monitor** accepts chat messages and streams Server-Sent Events: `delta`, `tool`, `citation`, and `done`.
+- **Jev triage shadow** (opt-in via `TYPESAFE_API_KEY`) runs TypeSafe Jev next to each Guardian investigation and records a non-authoritative `guardian_triage` comparison — see below.
+
+## Jev triage shadow
+
+Jev (TypeSafe System One) answers four typed questions per Guardian trigger — `severity` (Score), `incident_type` (Choice), `needs_investigation` and `likely_false_positive` (Noul) — over a filtered state (counts computed in code, ≤20 decisions, no raw payloads). The triage runs concurrently with the Guardian LLM, never alters Guardian's behaviour, and is posted to `POST /api/gov/jev/shadow` with `kind: "guardian_triage"`, `baseline` = Guardian (the severity from the `Severity: <level>` line the Guardian LLM is instructed to end its report with; the incident's pre-filled heuristic severity is deliberately ignored; else `investigated`/`skipped`) and `jev` = the combined severity, score, confidence, latency, tokens and raw signals. Configure with `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`, `JEV_MODEL` (pinned `jev-1.13.0`), `JEV_TIMEOUT_MS` (2000), `JEV_SHADOW`, `JEV_SHADOW_GUARDIAN`. Benchmark offline with `intelligence/scripts/eval_triage.py` over `eval/triage-cases.jsonl`.
 
 ## Guardian authority
 

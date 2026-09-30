@@ -1,0 +1,32 @@
+#cloud-config
+# Lab vendor-directory API behind Caddy (automatic HTTPS on the Azure public-IP DNS name). No SSH; manage with
+# `az vm run-command`. __FQDN__ and __APP_B64__ are substituted by provision-lab.ps1.
+package_update: true
+packages: [debian-keyring, debian-archive-keyring, apt-transport-https, curl, gnupg, python3]
+write_files:
+  - path: /opt/vendorapi/app.py
+    encoding: b64
+    content: __APP_B64__
+    permissions: "0644"
+  - path: /etc/systemd/system/vendorapi.service
+    content: |
+      [Unit]
+      Description=Lab vendor directory API
+      After=network-online.target
+      [Service]
+      Environment=VENDOR_API_FQDN=__FQDN__
+      Environment=VENDOR_API_LOG=/var/log/vendorapi/vendorapi.log
+      ExecStart=/usr/bin/python3 /opt/vendorapi/app.py
+      Restart=always
+      DynamicUser=yes
+      LogsDirectory=vendorapi
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' -o /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update && apt-get install -y caddy
+  - printf '__FQDN__ {\n  reverse_proxy 127.0.0.1:8080 {\n    header_up X-Forwarded-For {remote_host}\n  }\n}\n' > /etc/caddy/Caddyfile
+  - systemctl daemon-reload
+  - systemctl enable --now vendorapi
+  - systemctl restart caddy

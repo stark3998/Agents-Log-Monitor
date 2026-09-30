@@ -94,7 +94,16 @@ def extract_code(arguments: Any, tool_name: str | None = None, tool_type: str | 
     return out
 
 
+INLINE = re.compile(r"`([^`\n]{8,400})`")
+
+
 def extract_code_from_text(text: str | None) -> list[CodeSnippet]:
+    """Fenced blocks, plus inline `code` spans that look like commands (agents often hand users one-liners)."""
     if not text:
         return []
-    return [CodeSnippet(detect_language(m.group(2), m.group(1)), m.group(2), "message:fence") for m in FENCE.finditer(text)]
+    out = [CodeSnippet(detect_language(m.group(2), m.group(1)), m.group(2), "message:fence") for m in FENCE.finditer(text)]
+    stripped = FENCE.sub("", text)
+    for m in INLINE.finditer(stripped):
+        if _looks_like_code(m.group(1)):
+            out.append(CodeSnippet(detect_language(m.group(1)), m.group(1), "message:inline"))
+    return out

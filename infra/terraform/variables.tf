@@ -363,3 +363,216 @@ variable "bot_messaging_path" {
   type        = string
   default     = "/api/teams/messages"
 }
+# ---------------------------------------------------------------------------------------------
+# Monitoring fleet (fleet/, optional). Everything below is inert unless enable_fleet = true.
+# ---------------------------------------------------------------------------------------------
+variable "enable_fleet" {
+  description = "Deploy the Python monitoring fleet (worker + hooks Container Apps, managed identity, read-only RBAC). Default off."
+  type        = bool
+  default     = false
+}
+
+variable "fleet_image_tag" {
+  description = "Fleet image tag (git SHA, repository agentgov/fleet) used when the fleet apps are first created. Required when enable_fleet and deploy_apps are true."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.fleet_image_tag != "latest"
+    error_message = "Never deploy the :latest tag — use the git SHA."
+  }
+}
+
+variable "fleet_sizing" {
+  description = "Fleet sizing. The worker is always exactly 1 replica (SQLite state + source cursors)."
+  type = object({
+    cpu                    = optional(number, 0.5)
+    memory                 = optional(string, "1Gi")
+    hooks_enabled          = optional(bool, true)
+    hooks_external_ingress = optional(bool, true) # Copilot Studio calls the webhook from the internet
+    hooks_cpu              = optional(number, 0.5)
+    hooks_memory           = optional(string, "1Gi")
+    hooks_min_replicas     = optional(number, 1)
+    hooks_max_replicas     = optional(number, 1) # >1 splits per-session context across replica-local SQLite
+    hooks_concurrent       = optional(number, 20)
+  })
+  default = {}
+}
+
+variable "fleet_worker_args" {
+  description = "Arguments for the worker entrypoint (agentmon-fleet), e.g. [\"run\", \"--agentic\"]."
+  type        = list(string)
+  default     = ["run"]
+}
+
+variable "fleet_law_workspace_id" {
+  description = "FLEET_LAW_WORKSPACE_ID (workspace GUID) of the Log Analytics workspace holding agent logs. Empty = the platform workspace."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_law_resource_id" {
+  description = "Resource id of that workspace (Log Analytics Reader is granted here). Empty = the platform workspace."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_appinsights_resource_id" {
+  description = "FLEET_APPINSIGHTS_RESOURCE_ID (workspace-based App Insights queried for gen_ai traces). Empty = unset."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_alerts_dce" {
+  description = "FLEET_ALERTS_DCE: Data Collection Endpoint logs-ingestion URL for fleet alerts. Empty = Azure Monitor sink off."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_alerts_dcr_immutable_id" {
+  description = "FLEET_ALERTS_DCR_ID: the DCR immutable id (dcr-...) used by the Logs Ingestion API."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_alerts_dcr_resource_id" {
+  description = "Resource id of the alerts DCR (Monitoring Metrics Publisher is granted here). Empty = no grant."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_diagnostics_storage_account_id" {
+  description = "Resource id of the diagnostics storage account (FLEET_STORAGE_ACCOUNT; Storage Blob Data Reader). Empty = storage collector off."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.fleet_diagnostics_storage_account_id == "" || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Storage/storageAccounts/[^/]+$", var.fleet_diagnostics_storage_account_id))
+    error_message = "fleet_diagnostics_storage_account_id must be a Microsoft.Storage/storageAccounts resource id."
+  }
+}
+
+variable "fleet_dataverse_org_url" {
+  description = "FLEET_DATAVERSE_ORG_URL (https://<org>.crm.dynamics.com) for Copilot Studio transcripts. The fleet identity must be added as a Dataverse application user (not managed here)."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_pp_environment_id" {
+  description = "FLEET_PP_ENVIRONMENT_ID (Power Platform environment id)."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_foundry_project_endpoint" {
+  description = "FLEET_FOUNDRY_PROJECT_ENDPOINT. Empty = derived from foundry_account_id + foundry_project_name."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_foundry_account_ids" {
+  description = "Foundry (Microsoft.CognitiveServices/accounts) resource ids the fleet monitors/uses; each gets Azure AI User. foundry_account_id is always included."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for id in var.fleet_foundry_account_ids : can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.CognitiveServices/accounts/[^/]+$", id))])
+    error_message = "fleet_foundry_account_ids must be Microsoft.CognitiveServices/accounts resource ids."
+  }
+}
+
+variable "fleet_scope_subscriptions" {
+  description = "Subscription ids (GUIDs) in monitoring scope (FLEET_SCOPE_SUBSCRIPTIONS). Monitoring Reader + Security Reader are granted on each. Empty = the deployment subscription."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for s in var.fleet_scope_subscriptions : can(regex("^[0-9a-fA-F-]{36}$", s))])
+    error_message = "fleet_scope_subscriptions must be subscription GUIDs (not resource ids)."
+  }
+}
+
+variable "fleet_monitored_resource_ids" {
+  description = "Extra resource / resource-group ids outside the scope subscriptions that the fleet reads (Monitoring Reader on each)."
+  type        = list(string)
+  default     = []
+}
+
+variable "fleet_hooks_audience" {
+  description = "FLEET_HOOKS_AUDIENCE: accepted aud values for webhook tokens (app id URI / app id of the hooks app registration)."
+  type        = list(string)
+  default     = []
+}
+
+variable "fleet_hooks_allowed_app_ids" {
+  description = "FLEET_HOOKS_ALLOWED_APP_IDS: caller app ids allowed to call the hooks (e.g. the Copilot Studio / Power Platform caller)."
+  type        = list(string)
+  default     = []
+}
+
+variable "fleet_hooks_mode" {
+  description = "FLEET_HOOKS_MODE default (observe | enforce). Charters can opt individual agents into enforce."
+  type        = string
+  default     = "observe"
+
+  validation {
+    condition     = contains(["observe", "enforce"], var.fleet_hooks_mode)
+    error_message = "fleet_hooks_mode must be observe or enforce."
+  }
+}
+
+variable "fleet_monitor_url" {
+  description = "FLEET_MONITOR_URL. Empty = the governance control plane URL of this deployment."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_model_deployment" {
+  description = "FLEET_MODEL_DEPLOYMENT (reasoning model). Empty = application default."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_fast_model_deployment" {
+  description = "FLEET_FAST_MODEL_DEPLOYMENT (fast model used on the hooks path). Empty = application default."
+  type        = string
+  default     = ""
+}
+
+variable "fleet_extra_env" {
+  description = "Additional NON-SECRET FLEET_* settings (e.g. FLEET_POLL_INTERVAL_S). Lists must be JSON-encoded strings."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for k in keys(var.fleet_extra_env) :
+      startswith(k, "FLEET_") && !contains([
+        "FLEET_AZURE_CLIENT_SECRET", "FLEET_MONITOR_TOKEN", "FLEET_FOUNDRY_API_KEY", "FLEET_TYPESAFE_API_KEY",
+        "FLEET_HOOKS_TOKEN", "FLEET_HOOKS_ALLOW_ANONYMOUS", "FLEET_APPINSIGHTS_CONNECTION_STRING",
+      ], k)
+    ])
+    error_message = "fleet_extra_env keys must start with FLEET_ and must not be secrets (use the Key Vault-backed fleet_* secret variables) or FLEET_HOOKS_ALLOW_ANONYMOUS."
+  }
+}
+
+variable "fleet_monitor_token" {
+  description = "FLEET_MONITOR_TOKEN (bearer for the governance server). Stored in Key Vault; pass as TF_VAR_fleet_monitor_token. Empty = not set."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "fleet_foundry_api_key" {
+  description = "FLEET_FOUNDRY_API_KEY (optional; managed identity is preferred). Stored in Key Vault. Empty = not set."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "fleet_typesafe_api_key" {
+  description = "FLEET_TYPESAFE_API_KEY (Jev shadow mode). Stored in Key Vault. Empty = not set (Jev disabled)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

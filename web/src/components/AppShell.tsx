@@ -5,6 +5,8 @@ import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import PolicyRoundedIcon from '@mui/icons-material/PolicyRounded';
 import HealthAndSafetyRoundedIcon from '@mui/icons-material/HealthAndSafetyRounded';
+import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
+import RadarRoundedIcon from '@mui/icons-material/RadarRounded';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useThemeMode } from '../theme/ThemeModeProvider';
 import { useLiveStatus } from '../api/live';
@@ -28,6 +30,8 @@ const TABS = [
   { path: '/policies', label: 'Policies', gov: true, icon: <PolicyRoundedIcon fontSize="small" /> },
   { path: '/posture', label: 'Posture', gov: true, icon: <HealthAndSafetyRoundedIcon fontSize="small" /> },
   { path: '/incidents', label: 'Incidents', gov: true },
+  { path: '/fleet', label: 'Fleet', gov: true, icon: <RadarRoundedIcon fontSize="small" /> },
+  { path: '/jev', label: 'Jev vs LLM', gov: true, icon: <CompareArrowsRoundedIcon fontSize="small" /> },
   { path: '/ask', label: 'Ask', gov: true },
 ];
 

@@ -21,10 +21,24 @@ locals {
   }, var.tags)
 
   apps = toset(["control-plane", "mcp-gateway", "intelligence"])
+  # The optional monitoring fleet gets its own identity (AcrPull + secret reads flow from local.principal_ids).
+  identity_apps = var.enable_fleet ? setunion(local.apps, ["fleet"]) : local.apps
 
   foundry_enabled       = var.foundry_account_id != ""
   teams_webhook_enabled = nonsensitive(var.teams_webhook_url != "")
   alert_webhook_enabled = nonsensitive(var.alert_webhook_urls != "")
+
+  # Optional fleet secrets: env var => Key Vault secret name, created only when a value is supplied.
+  fleet_secret_names = {
+    FLEET_MONITOR_TOKEN    = "fleet-monitor-token"
+    FLEET_FOUNDRY_API_KEY  = "fleet-foundry-api-key"
+    FLEET_TYPESAFE_API_KEY = "fleet-typesafe-api-key"
+  }
+  fleet_secret_enabled = {
+    FLEET_MONITOR_TOKEN    = var.enable_fleet && nonsensitive(var.fleet_monitor_token != "")
+    FLEET_FOUNDRY_API_KEY  = var.enable_fleet && nonsensitive(var.fleet_foundry_api_key != "")
+    FLEET_TYPESAFE_API_KEY = var.enable_fleet && nonsensitive(var.fleet_typesafe_api_key != "")
+  }
 }
 
 resource "azurerm_resource_group" "this" {
@@ -61,7 +75,7 @@ module "identity" {
   source = "./modules/identity"
 
   name                = local.base
-  apps                = local.apps
+  apps                = local.identity_apps
   location            = var.location
   resource_group_name = local.resource_group_name
   tags                = local.tags
@@ -174,11 +188,12 @@ locals {
       "redis-url"                     = ["control-plane"]
       "alert-webhook-secret"          = ["control-plane"]
       "device-signing-key"            = ["control-plane"]
-      "appinsights-connection-string" = ["control-plane", "mcp-gateway", "intelligence"]
+      "appinsights-connection-string" = concat(["control-plane", "mcp-gateway", "intelligence"], var.enable_fleet ? ["fleet"] : [])
       "gateway-config"                = ["mcp-gateway"]
     },
     local.teams_webhook_enabled ? { "teams-webhook-url" = ["control-plane"] } : {},
     local.alert_webhook_enabled ? { "alert-webhook-urls" = ["control-plane"] } : {},
+    { for name, s in local.fleet_secret_names : s => ["fleet"] if local.fleet_secret_enabled[name] },
   )
 
   secret_values = {
@@ -189,6 +204,9 @@ locals {
     "gateway-config"                = var.gateway_config_json == "" ? "{\"upstreams\":[]}" : var.gateway_config_json
     "teams-webhook-url"             = var.teams_webhook_url
     "alert-webhook-urls"            = var.alert_webhook_urls
+    "fleet-monitor-token"           = var.fleet_monitor_token
+    "fleet-foundry-api-key"         = var.fleet_foundry_api_key
+    "fleet-typesafe-api-key"        = var.fleet_typesafe_api_key
   }
 
   secret_readers = merge([
@@ -390,4 +408,113 @@ module "bot" {
   }
   messaging_endpoint = "${module.container_apps.control_plane_url}${var.bot_messaging_path}"
   tags               = local.tags
+}
+
+# ---------------------------------------------------------------------------------------------
+# Optional: monitoring fleet (fleet/) — worker + real-time hooks. Off unless enable_fleet = true.
+# ---------------------------------------------------------------------------------------------
+locals {
+  fleet_law_resource_id  = var.fleet_law_resource_id != "" ? var.fleet_law_resource_id : module.observability.log_analytics_workspace_id
+  fleet_law_workspace_id = var.fleet_law_workspace_id != "" ? var.fleet_law_workspace_id : module.observability.log_analytics_customer_id
+  fleet_scope_subscriptions = (
+    length(var.fleet_scope_subscriptions) > 0
+    ? var.fleet_scope_subscriptions
+    : [data.azurerm_client_config.current.subscription_id]
+  )
+  fleet_foundry_account_ids = distinct(compact(concat([var.foundry_account_id], var.fleet_foundry_account_ids)))
+
+  # Least privilege, mirroring the lab service principal: read logs/metrics/security posture, use
+  # Foundry models, read diagnostic blobs, publish alerts to one DCR. Keys are static (plan-time known).
+  fleet_role_assignments = merge(
+    { "law-log-analytics-reader" = { scope = local.fleet_law_resource_id, role = "Log Analytics Reader" } },
+    { for s in local.fleet_scope_subscriptions : "sub-monitoring-reader-${lower(s)}" => { scope = "/subscriptions/${s}", role = "Monitoring Reader" } },
+    { for s in local.fleet_scope_subscriptions : "sub-security-reader-${lower(s)}" => { scope = "/subscriptions/${s}", role = "Security Reader" } },
+    { for id in local.fleet_foundry_account_ids : "foundry-ai-user-${lower(id)}" => { scope = id, role = "Azure AI User" } },
+    { for id in var.fleet_monitored_resource_ids : "monitored-reader-${lower(id)}" => { scope = id, role = "Monitoring Reader" } },
+    var.fleet_diagnostics_storage_account_id == "" ? {} : {
+      "diag-storage-blob-reader" = { scope = var.fleet_diagnostics_storage_account_id, role = "Storage Blob Data Reader" }
+    },
+    var.fleet_alerts_dcr_resource_id == "" ? {} : {
+      "alerts-dcr-metrics-publisher" = { scope = var.fleet_alerts_dcr_resource_id, role = "Monitoring Metrics Publisher" }
+    },
+  )
+
+  # pydantic-settings parses list[str] settings from JSON.
+  fleet_env = merge({ for k, v in {
+    FLEET_AZURE_TENANT_ID          = data.azurerm_client_config.current.tenant_id
+    FLEET_SUBSCRIPTION_ID          = local.fleet_scope_subscriptions[0]
+    FLEET_SCOPE_SUBSCRIPTIONS      = jsonencode(local.fleet_scope_subscriptions)
+    FLEET_FOUNDRY_PROJECT_ENDPOINT = var.fleet_foundry_project_endpoint != "" ? var.fleet_foundry_project_endpoint : (local.foundry_enabled ? module.foundry_access[0].project_endpoint : "")
+    FLEET_FOUNDRY_RESOURCE_ID      = length(local.fleet_foundry_account_ids) > 0 ? local.fleet_foundry_account_ids[0] : ""
+    FLEET_MODEL_DEPLOYMENT         = var.fleet_model_deployment
+    FLEET_FAST_MODEL_DEPLOYMENT    = var.fleet_fast_model_deployment
+    FLEET_LAW_WORKSPACE_ID         = local.fleet_law_workspace_id
+    FLEET_LAW_RESOURCE_ID          = local.fleet_law_resource_id
+    FLEET_APPINSIGHTS_RESOURCE_ID  = var.fleet_appinsights_resource_id
+    FLEET_STORAGE_ACCOUNT          = var.fleet_diagnostics_storage_account_id == "" ? "" : element(split("/", var.fleet_diagnostics_storage_account_id), 8)
+    FLEET_DATAVERSE_ORG_URL        = var.fleet_dataverse_org_url
+    FLEET_PP_ENVIRONMENT_ID        = var.fleet_pp_environment_id
+    FLEET_ALERTS_DCE               = var.fleet_alerts_dce
+    FLEET_ALERTS_DCR_ID            = var.fleet_alerts_dcr_immutable_id
+    FLEET_MONITOR_URL              = var.fleet_monitor_url != "" ? var.fleet_monitor_url : module.container_apps.control_plane_url
+  } : k => v if v != "" }, var.fleet_extra_env)
+
+  fleet_hooks_env = {
+    FLEET_HOOKS_AUDIENCE        = jsonencode(var.fleet_hooks_audience)
+    FLEET_HOOKS_ALLOWED_APP_IDS = jsonencode(var.fleet_hooks_allowed_app_ids)
+    FLEET_HOOKS_MODE            = var.fleet_hooks_mode
+    FLEET_HOOKS_ALLOW_ANONYMOUS = "false" # never anonymous in Azure
+  }
+
+  # Secrets only via Key Vault secretRef — never plain env vars.
+  fleet_secret_env = merge(
+    { FLEET_APPINSIGHTS_CONNECTION_STRING = "appinsights-connection-string" },
+    { for env, s in local.fleet_secret_names : env => s if local.fleet_secret_enabled[env] },
+  )
+}
+
+module "fleet" {
+  source = "./modules/fleet"
+  count  = var.enable_fleet ? 1 : 0
+
+  name                         = local.base
+  resource_group_name          = local.resource_group_name
+  container_app_environment_id = module.container_apps.environment_id
+  acr_login_server             = module.acr.login_server
+  image_tag                    = var.fleet_image_tag
+  deploy_apps                  = var.deploy_apps
+  identity = {
+    id           = local.identities["fleet"].id
+    client_id    = local.identities["fleet"].client_id
+    principal_id = local.identities["fleet"].principal_id
+  }
+  sizing = {
+    cpu                    = var.fleet_sizing.cpu
+    memory                 = var.fleet_sizing.memory
+    hooks_enabled          = var.fleet_sizing.hooks_enabled
+    hooks_external_ingress = var.fleet_sizing.hooks_external_ingress
+    hooks_cpu              = var.fleet_sizing.hooks_cpu
+    hooks_memory           = var.fleet_sizing.hooks_memory
+    hooks_min_replicas     = var.fleet_sizing.hooks_min_replicas
+    hooks_max_replicas     = var.fleet_sizing.hooks_max_replicas
+    hooks_concurrent       = var.fleet_sizing.hooks_concurrent
+  }
+  worker_args      = var.fleet_worker_args
+  env              = local.fleet_env
+  hooks_env        = local.fleet_hooks_env
+  secret_env       = local.fleet_secret_env
+  secrets          = { for s in values(local.fleet_secret_env) : s => local.secret_ids[s] }
+  role_assignments = local.fleet_role_assignments
+  tags             = local.tags
+
+  # Image pulls need AcrPull (granted to every identity in module.acr).
+  depends_on = [module.acr]
+}
+
+# Hooks without an accepted audience reject every webhook call (fail closed) — surface it at plan time.
+check "fleet_hooks_auth_configured" {
+  assert {
+    condition     = !var.enable_fleet || !var.fleet_sizing.hooks_enabled || length(var.fleet_hooks_audience) > 0
+    error_message = "enable_fleet: fleet_hooks_audience is empty, so the hooks app will reject all webhook calls. Set it to the hooks app registration's app id / app id URI."
+  }
 }

@@ -11,6 +11,7 @@ import { parseLaneYaml, validateLane, validateLaneYaml } from '../lanes/loader';
 import { simulateLane } from '../lanes/simulate';
 import { intentTracker } from '../intent';
 import { activePolicies } from '../policies';
+import jevRouter from './jev';
 
 const router = Router();
 
@@ -243,5 +244,8 @@ router.get('/audit/export', requireRole('Viewer'), async (req, res) => {
   const page = await govStore().queryDecisions({ since: req.query.from as string | undefined, until: req.query.to as string | undefined, limit: 20_000 });
   res.type('application/x-ndjson').send(page.items.map(d => JSON.stringify(d)).join('\n') + (page.items.length ? '\n' : ''));
 });
+
+// TypeSafe Jev shadow-mode comparisons: /jev/summary, /jev/shadow (see routes/jev.ts).
+router.use(jevRouter);
 
 export default router;

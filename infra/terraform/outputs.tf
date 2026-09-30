@@ -118,3 +118,27 @@ output "email_sender_address" {
 output "bot_name" {
   value = var.bot_enabled ? module.bot[0].bot_name : ""
 }
+
+# --- Monitoring fleet (optional) --------------------------------------------------------
+output "fleet_enabled" {
+  value = var.enable_fleet
+}
+
+output "fleet_app_names" {
+  description = "Fleet Container App names ({} when enable_fleet = false). CD rolls these to agentgov/fleet:<sha>."
+  value       = var.enable_fleet ? module.fleet[0].app_names : {}
+}
+
+output "fleet_hooks_url" {
+  description = "Copilot Studio webhook base URL (<url>/copilot-studio/analyze-tool-execution). Empty when disabled."
+  value       = var.enable_fleet ? module.fleet[0].hooks_url : ""
+}
+
+output "fleet_identity_client_id" {
+  description = "Fleet managed identity client id (add it as a Dataverse application user for transcript collection)."
+  value       = var.enable_fleet ? local.identities["fleet"].client_id : ""
+}
+
+output "fleet_image_repository" {
+  value = "${module.acr.login_server}/agentgov/fleet"
+}

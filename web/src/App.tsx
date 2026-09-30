@@ -19,6 +19,8 @@ const PosturePage = lazy(() => import('./pages/posture/PosturePage').then(m => (
 const IncidentsPage = lazy(() => import('./pages/incidents/IncidentsPage').then(m => ({ default: m.IncidentsPage })));
 const IncidentDetailPage = lazy(() => import('./pages/incidents/IncidentDetailPage').then(m => ({ default: m.IncidentDetailPage })));
 const AskPage = lazy(() => import('./pages/ask/AskPage').then(m => ({ default: m.AskPage })));
+const JevComparisonPage = lazy(() => import('./pages/jev/JevComparisonPage').then(m => ({ default: m.JevComparisonPage })));
+const FleetPage = lazy(() => import('./pages/fleet/FleetPage').then(m => ({ default: m.FleetPage })));
 
 function RedirectHome() {
   const { search } = useLocation();
@@ -55,6 +57,8 @@ export default function App() {
         <Route path="/posture" element={lazyPage(<PosturePage />)} />
         <Route path="/incidents" element={lazyPage(<IncidentsPage />)} />
         <Route path="/incidents/:id" element={lazyPage(<IncidentDetailPage />)} />
+        <Route path="/fleet" element={lazyPage(<FleetPage />)} />
+        <Route path="/jev" element={lazyPage(<JevComparisonPage />)} />
         <Route path="/ask" element={lazyPage(<AskPage />)} />
         <Route path="*" element={<RedirectHome />} />
       </Routes>

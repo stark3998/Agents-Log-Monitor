@@ -4,16 +4,18 @@ import { DefaultAzureCredential } from '@azure/identity';
 import { GENESIS_HASH, hashDecision, verifyChain } from '../audit';
 import { govConfig } from '../config';
 import type {
-  Approval, Decision, Incident, LaneRecord, LaneStatus, PolicyRecord, PostureEndpointRecord, PostureFindingRecord,
-  RegisteredAgent, SessionIntent,
+  Approval, Decision, FleetAlert, FleetAlertQuery, Incident, LaneRecord, LaneStatus, PolicyRecord, PostureEndpointRecord,
+  PostureFindingRecord, RegisteredAgent, SessionIntent,
 } from '../types';
 import type {
   ApprovalQuery, AuditVerifyResult, DecisionQuery, GovernanceStore, IncidentQuery, Page, PostureFindingQuery, SettingDoc,
 } from './repository';
+import { jevConfig } from '../jev/config';
+import type { JevShadowQuery, JevShadowRecord } from '../jev/types';
 
 type Box = 'alerts' | 'sync';
 type CosmosLikeContainer = Pick<Container, 'id' | 'items' | 'item'> & { database?: { id: string } };
-type ContainerName = 'lanes' | 'agents' | 'sessions' | 'decisions' | 'audit' | 'approvals' | 'incidents' | 'outbox' | 'posture';
+type ContainerName = 'lanes' | 'agents' | 'sessions' | 'decisions' | 'audit' | 'approvals' | 'incidents' | 'outbox' | 'posture' | 'jev_shadow' | 'fleet';
 
 export interface CosmosGovernanceStoreOptions {
   tenantId?: string;
@@ -30,8 +32,10 @@ interface HeadDoc { id: 'head'; tenantId: string; kind: 'audit-head'; seq: numbe
 interface DecisionDoc extends Decision { tenantId: string; origin?: unknown }
 interface AuditDecisionDoc { id: string; tenantId: string; kind: 'audit-decision'; seq: number; decisionId: string; sessionId: string; prevHash: string; hash: string; decision: Decision; origin?: unknown; createdAt: string; _etag?: string }
 interface OutboxDoc { id: string; box: Box; item: unknown; attempts: number; claimedAt?: string | null; createdAt: string; _etag?: string }
+/** Shadow record as stored: `pk` spreads writes (sessionId, or a tenant bucket when absent); `ttl` enforces retention. */
+type JevShadowDoc = JevShadowRecord & { tenantId: string; pk: string; ttl?: number };
 
-const CONTAINER_DEFS: Record<ContainerName, { partitionKey: string; indexingPolicy?: unknown }> = {
+const CONTAINER_DEFS: Record<ContainerName, { partitionKey: string; indexingPolicy?: unknown; defaultTtl?: number }> = {
   lanes: { partitionKey: '/tenantId', indexingPolicy: policy(['/yaml/?', '/lane/judge/*', '/lane/rules/*']) },
   agents: { partitionKey: '/tenantId' },
   sessions: { partitionKey: '/sessionId' },
@@ -54,8 +58,12 @@ const CONTAINER_DEFS: Record<ContainerName, { partitionKey: string; indexingPoli
   audit: { partitionKey: '/tenantId' },
   approvals: { partitionKey: '/tenantId' },
   incidents: { partitionKey: '/tenantId', indexingPolicy: policy(['/report/?', '/recommendations/*']) },
+  // Monitoring-fleet alerts; evidence is stored but not indexed.
+  fleet: { partitionKey: '/tenantId', indexingPolicy: policy(['/evidence/*', '/summary/?', '/source_event_ids/*']) },
   outbox: { partitionKey: '/box' },
   posture: { partitionKey: '/tenantId', indexingPolicy: policy(['/inventory/*', '/evidence/*']) },
+  // Non-authoritative Jev shadow comparisons. TTL enabled (-1): items carry their own `ttl` for retention.
+  jev_shadow: { partitionKey: '/pk', indexingPolicy: policy(['/jev/signals/*', '/jev/rationale/?', '/jev/laneClause/?']), defaultTtl: -1 },
 };
 
 function policy(excluded: string[]): unknown {
@@ -79,6 +87,12 @@ function asDecision(doc: DecisionDoc): Decision {
   return decision;
 }
 function queryText(v: string): string { return `%${v.replace(/[%_]/g, '')}%`; }
+function asJevShadow(doc: JevShadowDoc): JevShadowRecord {
+  const { tenantId: _t, pk: _pk, ttl: _ttl, ...rest } = doc;
+  const out = { ...rest } as JevShadowRecord & Record<string, unknown>;
+  for (const k of ['_etag', '_rid', '_self', '_ts', '_attachments']) delete out[k];
+  return out;
+}
 
 /**
  * Cosmos DB implementation of the governance repository.
@@ -129,6 +143,7 @@ export class CosmosGovernanceStore implements GovernanceStore {
           id,
           partitionKey: { paths: [def.partitionKey] },
           indexingPolicy: def.indexingPolicy as never,
+          ...(def.defaultTtl !== undefined ? { defaultTtl: def.defaultTtl } : {}),
         });
         this.containers[id] = created.container as CosmosLikeContainer;
       }
@@ -516,6 +531,47 @@ export class CosmosGovernanceStore implements GovernanceStore {
     return { ok: v.ok, checked: items.length, brokenAt: v.brokenAt, headHash: v.headHash };
   }
 
+  // Jev shadow (non-authoritative; NOT part of the audit chain)
+  private jevPk(r: Pick<JevShadowRecord, 'sessionId'>): string { return r.sessionId || `tenant:${this.tenantId}`; }
+
+  async appendJevShadow(r: JevShadowRecord): Promise<JevShadowRecord> {
+    const doc: JevShadowDoc = { ...r, tenantId: this.tenantId, pk: this.jevPk(r), ttl: jevConfig.shadow.retentionDays * 86_400 };
+    // Insert-only: an existing id is never overwritten (409 conflict → no-op).
+    try { await this.c('jev_shadow').items.create(doc as never); }
+    catch (err) { if (!isConflictOrPrecondition(err)) throw err; }
+    return r;
+  }
+
+  async queryJevShadow(q: JevShadowQuery): Promise<Page<JevShadowRecord>> {
+    const where = ['c.tenantId = @tenantId'];
+    const parameters: { name: string; value: unknown }[] = [{ name: '@tenantId', value: this.tenantId }];
+    if (q.kind?.length) { where.push('ARRAY_CONTAINS(@kind, c.kind)'); parameters.push({ name: '@kind', value: q.kind }); }
+    if (q.sessionId) { where.push('c.sessionId = @sessionId'); parameters.push({ name: '@sessionId', value: q.sessionId }); }
+    if (q.laneId) { where.push('c.laneId = @laneId'); parameters.push({ name: '@laneId', value: q.laneId }); }
+    if (q.agree != null) { where.push('c.agree = @agree'); parameters.push({ name: '@agree', value: q.agree }); }
+    if (q.since) { where.push('c.createdAt >= @since'); parameters.push({ name: '@since', value: q.since }); }
+    if (q.until) { where.push('c.createdAt < @until'); parameters.push({ name: '@until', value: q.until }); }
+    const page = await this.fetchPage<JevShadowDoc>('jev_shadow', { query: `SELECT * FROM c WHERE ${where.join(' AND ')} ORDER BY c.createdAt DESC`, parameters }, limit(q.limit, 50, 1000), q.cursor);
+    return { items: page.resources.map(asJevShadow), cursor: page.continuationToken };
+  }
+
+  async pruneJevShadow(before: string): Promise<number> {
+    // Per-item TTL normally expires records first; this sweeps anything older (e.g. retention shortened).
+    let removed = 0;
+    for (;;) {
+      const rows = await this.fetchAll<{ id: string; pk: string }>('jev_shadow', {
+        query: 'SELECT TOP 500 c.id, c.pk FROM c WHERE c.tenantId = @tenantId AND c.createdAt < @before',
+        parameters: [{ name: '@tenantId', value: this.tenantId }, { name: '@before', value: before }],
+      });
+      if (!rows.length) return removed;
+      for (let i = 0; i < rows.length; i += 25) {
+        await Promise.all(rows.slice(i, i + 25).map(r => this.deleteItem('jev_shadow', r.id, r.pk)));
+      }
+      removed += rows.length;
+      if (rows.length < 500) return removed;
+    }
+  }
+
   // Approvals
   async createApproval(a: Approval): Promise<Approval> { await this.c('approvals').items.create({ ...a, tenantId: this.tenantId } as never); return a; }
   async getApproval(id: string): Promise<Approval | undefined> { const d = await this.readItem<Approval & { tenantId: string }>('approvals', id, this.tenantId); return d ? this.stripDoc(d) as Approval : undefined; }
@@ -561,6 +617,37 @@ export class CosmosGovernanceStore implements GovernanceStore {
     if (q.agentId) { where.push('ARRAY_CONTAINS(c.agentIds, @agentId)'); parameters.push({ name: '@agentId', value: q.agentId }); }
     const rows = await this.fetchAll<Incident & { tenantId: string }>('incidents', { query: `SELECT * FROM c WHERE ${where.join(' AND ')} ORDER BY c.createdAt DESC OFFSET 0 LIMIT @limit`, parameters: [...parameters, { name: '@limit', value: limit(q.limit) }] });
     return rows.map(r => this.stripDoc(r) as Incident);
+  }
+
+  // Fleet alerts
+  async upsertFleetAlerts(alerts: FleetAlert[]): Promise<number> {
+    for (const a of alerts) {
+      await this.c('fleet').items.upsert({ ...a, id: a.alert_id, tenantId: this.tenantId, kind: 'fleet_alert' } as never);
+    }
+    return alerts.length;
+  }
+  async getFleetAlert(id: string): Promise<FleetAlert | undefined> {
+    const d = await this.readItem<FleetAlert & { tenantId: string }>('fleet', id, this.tenantId);
+    return d ? this.stripDoc(d) as unknown as FleetAlert : undefined;
+  }
+  async listFleetAlerts(q: FleetAlertQuery = {}): Promise<FleetAlert[]> {
+    const where = ['c.tenantId = @tenantId', "c.kind = 'fleet_alert'"];
+    const parameters: { name: string; value: unknown }[] = [{ name: '@tenantId', value: this.tenantId }];
+    const inList = (col: string, name: string, vals?: string[]) => {
+      if (vals?.length) { where.push(`ARRAY_CONTAINS(${name}, c.${col})`); parameters.push({ name, value: vals }); }
+    };
+    inList('severity', '@severity', q.severity);
+    inList('alert_type', '@types', q.alertType);
+    inList('platform', '@platform', q.platform);
+    if (q.agent) { where.push('(c.agent_name = @agent OR c.agent_id = @agent)'); parameters.push({ name: '@agent', value: q.agent }); }
+    if (q.sessionId) { where.push('c.session_id = @sid'); parameters.push({ name: '@sid', value: q.sessionId }); }
+    if (q.incidentId) { where.push('c.incident_id = @iid'); parameters.push({ name: '@iid', value: q.incidentId }); }
+    if (q.since) { where.push('c.created_at >= @since'); parameters.push({ name: '@since', value: q.since }); }
+    const rows = await this.fetchAll<FleetAlert & { tenantId: string }>('fleet', {
+      query: `SELECT * FROM c WHERE ${where.join(' AND ')} ORDER BY c.created_at DESC OFFSET 0 LIMIT @limit`,
+      parameters: [...parameters, { name: '@limit', value: limit(q.limit, 200, 2000) }],
+    });
+    return rows.map(r => this.stripDoc(r) as unknown as FleetAlert);
   }
 
   // Outbox

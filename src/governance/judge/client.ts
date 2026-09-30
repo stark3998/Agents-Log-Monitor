@@ -48,10 +48,31 @@ export interface ChatJsonRequest {
   maxTokens?: number;
 }
 
+export interface ChatUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface ChatJsonResult {
   deployment: string;
   value: unknown;
   latencyMs: number;
+  /** Token usage from the chat completion `usage` field, when the service reported it. */
+  usage?: ChatUsage;
+}
+
+interface ChatAttemptResult {
+  value: unknown;
+  usage?: ChatUsage;
+}
+
+function parseUsage(raw: unknown): ChatUsage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const u = raw as { prompt_tokens?: unknown; completion_tokens?: unknown };
+  const input = typeof u.prompt_tokens === 'number' && Number.isFinite(u.prompt_tokens) ? u.prompt_tokens : undefined;
+  const output = typeof u.completion_tokens === 'number' && Number.isFinite(u.completion_tokens) ? u.completion_tokens : undefined;
+  if (input === undefined && output === undefined) return undefined;
+  return { inputTokens: input ?? 0, outputTokens: output ?? 0 };
 }
 
 export class FoundryChatClient {
@@ -63,10 +84,12 @@ export class FoundryChatClient {
     if (!this.available) throw new Error('Foundry OpenAI endpoint is not configured');
     const started = Date.now();
     const result = await this.completeJsonAttempt(req, started, false);
-    return { deployment: req.deployment, value: result, latencyMs: Date.now() - started };
+    const out: ChatJsonResult = { deployment: req.deployment, value: result.value, latencyMs: Date.now() - started };
+    if (result.usage) out.usage = result.usage;
+    return out;
   }
 
-  private async completeJsonAttempt(req: ChatJsonRequest, started: number, retried: boolean): Promise<unknown> {
+  private async completeJsonAttempt(req: ChatJsonRequest, started: number, retried: boolean): Promise<ChatAttemptResult> {
     const elapsed = Date.now() - started;
     const remaining = Math.max(0, req.timeoutMs - elapsed);
     if (remaining <= 0) throw new Error('Foundry chat completion timed out');
@@ -91,10 +114,11 @@ export class FoundryChatClient {
         throw new Error(`Foundry chat completion failed (${response.status}): ${detail.slice(0, 500)}`);
       }
 
-      const json = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+      const json = await response.json() as { choices?: Array<{ message?: { content?: unknown } }>; usage?: unknown };
       const content = json.choices?.[0]?.message?.content;
-      if (typeof content === 'string') return JSON.parse(content);
-      if (content && typeof content === 'object') return content;
+      const usage = parseUsage(json.usage);
+      if (typeof content === 'string') return { value: JSON.parse(content), usage };
+      if (content && typeof content === 'object') return { value: content, usage };
       throw new Error('Foundry chat completion response did not contain JSON content');
     } catch (err) {
       if (controller.signal.aborted) throw new Error('Foundry chat completion timed out');

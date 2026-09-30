@@ -6,3 +6,8 @@ __pycache__/
 *.db-shm
 *.db-wal
 reports/
+*.jsonl
+*.egg-info/
+scenario-runs/
+*.log
+*.err

@@ -81,6 +81,10 @@ class MonitorClient:
     async def patch_incident(self, incident_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         return await self._request("PATCH", f"/api/gov/incidents/{incident_id}", json=patch)
 
+    async def post_jev_shadow(self, record: dict[str, Any], *, timeout: float = 5.0) -> dict[str, Any] | None:
+        """Persist a non-authoritative Jev shadow record (body = TS ``JevShadowInput``)."""
+        return await self._request("POST", "/api/gov/jev/shadow", json=record, timeout=timeout)
+
     async def list_agents(self) -> list[dict[str, Any]]:
         return await self._request("GET", "/api/gov/agents")
 

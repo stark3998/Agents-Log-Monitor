@@ -1,0 +1,20 @@
+# Only pyproject.toml, src/ and charters/ are needed in the image.
+.venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+*.egg-info/
+tests/
+scenarios/
+scenario-runs/
+reports/
+# Local state / logs / secrets — never bake into the image.
+*.db
+*.db-shm
+*.db-wal
+*.jsonl
+.env
+.env.*
+Dockerfile
+.dockerignore
+.gitignore

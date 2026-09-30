@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import type { Approval, Decision, Incident, LaneRecord, PolicyRecord, RegisteredAgent, SessionIntent } from './types';
+import type { Approval, Decision, FleetAlert, Incident, LaneRecord, PolicyRecord, RegisteredAgent, SessionIntent } from './types';
 
 /**
  * In-process governance event bus. Producers (PDP, approvals, registry, lanes) emit; consumers
@@ -17,6 +17,7 @@ export interface GovEvents {
   'session.updated': (s: SessionIntent) => void;
   'incident.created': (i: Incident) => void;
   'incident.updated': (i: Incident) => void;
+  'fleet.alerts': (alerts: FleetAlert[]) => void;
 }
 
 class TypedBus extends EventEmitter {

@@ -122,6 +122,12 @@ export interface JudgeVerdict {
   model: string;
   tier: 'fast' | 'escalation';
   latencyMs: number;
+  /** Provider that produced the verdict (defaults to foundry when absent). */
+  provider?: 'foundry' | 'jev';
+  /** Token usage reported by the provider (used for cost comparison). */
+  usage?: { inputTokens: number; outputTokens: number };
+  /** Raw structured signals (Jev question ids → probability / score / label). */
+  signals?: Record<string, number | string>;
 }
 
 export interface Decision {
@@ -484,8 +490,48 @@ export interface Incident {
   report?: string;
   recommendations?: IncidentRecommendation[];
   containment?: { action: string; target: string; at: string; by: string }[];
+  /** Extra context when the incident was raised by the monitoring fleet (alert ids, OWASP/ATLAS mapping…). */
+  fleet?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Alert raised by the Python monitoring fleet (fleet/) about a Foundry / Copilot Studio agent or model caller. */
+export interface FleetAlert {
+  alert_id: string;
+  alert_type: string;
+  severity: 'informational' | 'low' | 'medium' | 'high' | 'critical';
+  score: number;
+  title: string;
+  summary: string;
+  detector: string;
+  platform: string;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  session_id?: string | null;
+  user_id?: string | null;
+  lane_id?: string | null;
+  action?: string;
+  owasp_llm?: string[];
+  owasp_agentic?: string[];
+  mitre_atlas?: string[];
+  evidence?: Record<string, unknown>;
+  source_event_ids?: string[];
+  incident_id?: string | null;
+  created_at: string;
+  /** Set by the server. */
+  received_at?: string;
+}
+
+export interface FleetAlertQuery {
+  severity?: FleetAlert['severity'][];
+  alertType?: string[];
+  platform?: string[];
+  agent?: string;
+  sessionId?: string;
+  incidentId?: string;
+  since?: string;
+  limit?: number;
 }
 
 // ── Roles ──────────────────────────────────────────────────────────────────

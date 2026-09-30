@@ -35,6 +35,8 @@ Implemented in [`src/governance/pdp.ts`](../src/governance/pdp.ts):
 
 When the judge is **not configured**, judge-gated actions are only failed if they are elevated (risk ≥ medium or a tainted session). Routine work like `npm test` falls through to the lane's allow rules or default.
 
+**Jev shadow (optional).** When `TYPESAFE_API_KEY` is set, TypeSafe Jev also evaluates judge-triggered actions, as well as tool results in the categories Prompt Shields scans. It does this after the decision is recorded, on a bounded background queue, and never affects the verdict. Its answers are stored as comparison records for benchmarking. See [Jev (shadow mode)](jev.md).
+
 ### Modes
 
 | Mode | Behaviour |

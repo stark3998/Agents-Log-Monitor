@@ -3,6 +3,9 @@
 # Auth: GitHub OIDC -> Entra ID federated credential (no client secret anywhere).
 #   secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID   (identifiers, not credentials)
 #   vars:    TFSTATE_RESOURCE_GROUP, TFSTATE_STORAGE_ACCOUNT, TFSTATE_CONTAINER
+#            ENABLE_FLEET = 'true' (optional) — also build/push agentgov/fleet and deploy the monitoring
+#            fleet (terraform enable_fleet). Unset/other = the fleet jobs/steps are skipped entirely.
+#   optional fleet secrets (Key Vault via TF_VAR_*): FLEET_MONITOR_TOKEN, FLEET_FOUNDRY_API_KEY, FLEET_TYPESAFE_API_KEY
 # GitHub environments (one pair per target environment):
 #   <env>-plan : no reviewers  — builds images and produces the plan
 #   <env>      : required reviewers — applies the reviewed plan and rolls the apps
@@ -143,11 +146,86 @@ jobs:
           docker push "${{ steps.acr.outputs.login_server }}/agentgov/${{ matrix.image }}:${IMAGE_TAG}"
 
   # -------------------------------------------------------------------------------------------
+  # Optional monitoring fleet image. Separate job (not a matrix entry) so it is skipped entirely
+  # unless the repository/environment variable ENABLE_FLEET is 'true'.
+  fleet-image:
+    name: Image — fleet
+    needs: ci
+    if: ${{ !inputs.bootstrap && vars.ENABLE_FLEET == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment || 'dev' }}-plan
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Resolve ACR from Terraform state
+        id: acr
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
+            -backend-config="key=agentgov-${TARGET_ENV}.tfstate" \
+            -backend-config="use_azuread_auth=true"
+          echo "name=$(terraform output -raw acr_name)" >> "$GITHUB_OUTPUT"
+          echo "login_server=$(terraform output -raw acr_login_server)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: fleet
+          file: fleet/Dockerfile
+          tags: ${{ steps.acr.outputs.login_server }}/agentgov/fleet:${{ env.IMAGE_TAG }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          load: true
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=fleet
+          cache-to: type=gha,mode=max,scope=fleet
+
+      - name: Trivy image scan (fail on CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.acr.outputs.login_server }}/agentgov/fleet:${{ env.IMAGE_TAG }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Push to ACR (git SHA tag only — never :latest)
+        run: |
+          az acr login --name "${{ steps.acr.outputs.name }}"
+          docker push "${{ steps.acr.outputs.login_server }}/agentgov/fleet:${IMAGE_TAG}"
+
+  # -------------------------------------------------------------------------------------------
   plan:
     name: Terraform plan (${{ inputs.environment || 'dev' }})
-    needs: [ci, images]
-    # Run when images succeeded, or were skipped because this is a bootstrap run.
-    if: ${{ !cancelled() && needs.ci.result == 'success' && (needs.images.result == 'success' || (inputs.bootstrap && needs.images.result == 'skipped')) }}
+    needs: [ci, images, fleet-image]
+    # Run when images succeeded, or were skipped because this is a bootstrap run. The fleet image
+    # must have succeeded, or been skipped (ENABLE_FLEET off / bootstrap).
+    if: ${{ !cancelled() && needs.ci.result == 'success' && (needs.images.result == 'success' || (inputs.bootstrap && needs.images.result == 'skipped')) && (needs.fleet-image.result == 'success' || needs.fleet-image.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ${{ inputs.environment || 'dev' }}-plan
@@ -162,6 +240,11 @@ jobs:
       TF_VAR_teams_webhook_url: ${{ secrets.TEAMS_WEBHOOK_URL }}
       TF_VAR_alert_webhook_urls: ${{ secrets.ALERT_WEBHOOK_URLS }}
       TF_VAR_gateway_config_json: ${{ secrets.GATEWAY_CONFIG_JSON }}
+      # Optional monitoring fleet (only used when ENABLE_FLEET == 'true').
+      ENABLE_FLEET: ${{ vars.ENABLE_FLEET == 'true' && 'true' || 'false' }}
+      TF_VAR_fleet_monitor_token: ${{ secrets.FLEET_MONITOR_TOKEN }}
+      TF_VAR_fleet_foundry_api_key: ${{ secrets.FLEET_FOUNDRY_API_KEY }}
+      TF_VAR_fleet_typesafe_api_key: ${{ secrets.FLEET_TYPESAFE_API_KEY }}
     defaults:
       run:
         working-directory: ${{ env.TF_DIR }}
@@ -196,11 +279,18 @@ jobs:
           else
             DEPLOY_APPS=true; TAG="$IMAGE_TAG"
           fi
+          # Fleet vars are only passed when ENABLE_FLEET is on, so the default plan is unchanged.
+          # (enable_fleet in tfvars without ENABLE_FLEET fails at plan: fleet_image_tag is required.)
+          FLEET_ARGS=()
+          if [ "$ENABLE_FLEET" = "true" ]; then
+            FLEET_ARGS=(-var "enable_fleet=true" -var "fleet_image_tag=${TAG}")
+          fi
           terraform plan -input=false -no-color -lock-timeout=5m \
             -var-file="$VAR_FILE" \
             -var "environment=${TARGET_ENV}" \
             -var "deploy_apps=${DEPLOY_APPS}" \
             -var "image_tag=${TAG}" \
+            "${FLEET_ARGS[@]}" \
             -out=tfplan | tee plan.txt
           {
             echo "## Terraform plan — ${TARGET_ENV}"
@@ -309,6 +399,31 @@ jobs:
               --only-show-errors -o none
           done
 
+      # Optional monitoring fleet: same image (agentgov/fleet:<sha>) for the worker and hooks apps.
+      # Appends to previous-images.txt so the smoke test and automatic rollback cover the fleet too.
+      - name: Roll out fleet revisions
+        if: env.BOOTSTRAP != 'true' && vars.ENABLE_FLEET == 'true'
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          RG: ${{ steps.tf.outputs.rg }}
+          ACR: ${{ steps.tf.outputs.acr }}
+        run: |
+          set -euo pipefail
+          SUFFIX="g${IMAGE_TAG:0:8}-r${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          echo "FLEET_HOOKS_URL=$(terraform output -raw fleet_hooks_url)" >> "$GITHUB_ENV"
+          for app in $(terraform output -json fleet_app_names | jq -r '.[]'); do
+            if ! az containerapp show -n "$app" -g "$RG" --only-show-errors >/dev/null 2>&1; then
+              echo "::notice::$app not deployed — skipping"; continue
+            fi
+            prev="$(az containerapp show -n "$app" -g "$RG" --query 'properties.template.containers[0].image' -o tsv)"
+            echo "$app $prev" >> "$RUNNER_TEMP/previous-images.txt"
+            echo "Updating $app -> $ACR/agentgov/fleet:$IMAGE_TAG (revision suffix $SUFFIX)"
+            az containerapp update -n "$app" -g "$RG" \
+              --image "$ACR/agentgov/fleet:$IMAGE_TAG" \
+              --revision-suffix "$SUFFIX" \
+              --only-show-errors -o none
+          done
+
       - name: Smoke test
         if: env.BOOTSTRAP != 'true'
         env:
@@ -329,6 +444,8 @@ jobs:
           check "$CP_URL/health"
           # Gateway only when publicly reachable; the intelligence app is internal-only.
           if [ -n "$GW_URL" ] && [[ "$GW_URL" != *".internal."* ]]; then check "$GW_URL/health"; fi
+          # Fleet hooks (set by "Roll out fleet revisions" only when ENABLE_FLEET is on and ingress is public).
+          if [ -n "${FLEET_HOOKS_URL:-}" ] && [[ "$FLEET_HOOKS_URL" != *".internal."* ]]; then check "$FLEET_HOOKS_URL/health"; fi
           # Every rolled app's latest revision must be Healthy (covers internal-only apps).
           while read -r app _; do
             for i in $(seq 1 30); do

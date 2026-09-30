@@ -25,7 +25,9 @@ Every decision goes into a hash-chained audit log. You can query all of it from 
 | **Endpoint posture**: 30 checks for risky AI-agent configuration (auto-approve, bypass flags, third-party extensions, exposed tokens…), with alerts and one-click fixes | `npm run posture`, [docs/posture.md](docs/posture.md) |
 | MCP server to ask "what did my agents do, what was blocked and why?" | `/mcp`, `npm run mcp`, [docs/mcp.md](docs/mcp.md) |
 | Guardian investigator agent, lane drafter and "Ask the monitor" chat (Python, Agent Framework on Foundry) | [docs/intelligence.md](docs/intelligence.md) |
+| **TypeSafe Jev shadow mode**: fast, structured decisions (judge, injection, session scoring, Guardian triage) benchmarked against the LLM judge without affecting verdicts, plus the "Jev vs LLM" dashboard and `npm run eval:compare` | [docs/jev.md](docs/jev.md) |
 | Hybrid deployment: local enforcers plus an Azure control plane (Container Apps, Cosmos DB, Redis, Entra ID) | [docs/cloud-mode.md](docs/cloud-mode.md), [infra/README.md](infra/README.md) |
+| **AgentMon Fleet**: Python monitoring fleet for Foundry and Copilot Studio agents and direct model callers (charters, intent/evasion/inference detectors, Copilot Studio threat-detection webhook) | [docs/fleet.md](docs/fleet.md) |
 | Entra ID roles, device enrollment, Teams/webhook/email alerts | [docs/security-auth.md](docs/security-auth.md) |
 
 ```powershell
@@ -33,6 +35,26 @@ npm run eval:redteam   # replays credential-drift, metadata-endpoint, injection,
 ```
 
 The built-in lanes start in `observe` mode, which logs would-deny decisions without blocking. Set `mode: enforce` in [lanes/coding-agent.yaml](lanes/coding-agent.yaml) (or in the Lanes page) once the would-deny rate looks right.
+
+## Monitoring fleet
+
+**AgentMon Fleet** ([`fleet/`](fleet/)) monitors enterprise AI agents in **Microsoft Foundry** and **Copilot Studio**, plus apps that call models directly, using the telemetry those platforms already produce. Sources include Log Analytics (resource logs, GenAI traces, activity, flow logs, Defender for AI), the Foundry data plane, Dataverse transcripts, and optionally Purview, Entra Agent ID and Defender XDR.
+
+Each agent gets a **charter** (derived by gpt-5.5, overridable in [fleet/charters](fleet/charters/lab-agents.yaml)). Detectors flag out-of-scope intent, goal drift and prompt injection, out-of-charter or obfuscated actions, attempts to work around a block (by the agent or the user), unregistered model callers, and control-plane tampering. Alerts are mapped to OWASP LLM, OWASP Agentic (ASI) and MITRE ATLAS, and go to Log Analytics (`AgentMonAlerts_CL`), the dashboard's **Fleet** page and incidents. The fleet only alerts and recommends; containment needs human approval.
+
+```powershell
+cd fleet; python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -e ".[dev]"
+agentmon-fleet run --once --console     # one monitoring cycle (FLEET_* settings in .env)
+agentmon-fleet hooks                    # real-time gate: Copilot Studio webhook, /evaluate
+agentmon-fleet scenarios list           # adversarial lab scenarios with recall/precision scoring
+```
+
+| Doc | Covers |
+|---|---|
+| [docs/fleet.md](docs/fleet.md) | Architecture, detectors and alert taxonomy, charters, LLM usage, configuration, deployment |
+| [docs/fleet-sources.md](docs/fleet-sources.md) | Each source: KQL and APIs, latency, required roles and consents, known gaps |
+| [docs/fleet-realtime-hooks.md](docs/fleet-realtime-hooks.md) | Copilot Studio threat detection, Foundry MCP approval, Agent Framework middleware |
+| [docs/apim-ai-gateway.md](docs/apim-ai-gateway.md) | Future phase: APIM AI gateway and the collector for it |
 
 ## Supported sources
 
@@ -149,6 +171,7 @@ src/                        Node/Express server (TypeScript, node:sqlite)
     pdp.ts                  Policy Decision Point (tiered pipeline)
     lanes/                  Lane loader (YAML/zod), rule engine, simulation
     judge/, shields/        Foundry LLM judge, Prompt Shields
+    jev/                    TypeSafe Jev shadow mode (questions, combine, queue, shadow, session scoring, stats)
     intent/, limits/        Session goal/trajectory/taint, runaway limits
     registry/, approvals/   Agent registry & kill switch, human approvals
     hooks/                  /hooks/:surface native adapters (Claude Code, Copilot, VS Code)
@@ -240,10 +263,11 @@ For macOS/Linux Claude Code and Copilot CLI setup, use `./install.sh --copilot-h
 - [Governance](docs/governance.md): lanes, checkpoints, the decision pipeline, modes, fail modes, configuration
 - [Lanes reference](docs/lanes.md): schema, rule conditions, defaults, rollout workflow
 - [Governance API](docs/governance-api.md): `/v1` PDP API, `/api/gov` admin API, WebSocket and MCP contracts
-- [Hook surfaces](docs/governance-surfaces.md), [MCP server](docs/mcp.md), [MCP gateway](docs/mcp-gateway.md), [Intelligence service](docs/intelligence.md)
+- [Hook surfaces](docs/governance-surfaces.md), [MCP server](docs/mcp.md), [MCP gateway](docs/mcp-gateway.md), [Intelligence service](docs/intelligence.md), [Jev shadow mode & benchmark](docs/jev.md)
 - [Cloud mode](docs/cloud-mode.md), [Security & auth](docs/security-auth.md), [Infrastructure](infra/README.md)
 - [Log Ingestion](docs/log-ingestion.md): how each source is polled or pushed, event mappings, capture channels, the `NormalizedEvent` schema, and how to add a new source
 - [Analytics](docs/analytics.md): detectors, risk rules, policy events, severity, autonomy, redaction and the rules file
+- [Monitoring fleet](docs/fleet.md): [sources](docs/fleet-sources.md), [real-time hooks](docs/fleet-realtime-hooks.md), [APIM AI gateway (future)](docs/apim-ai-gateway.md), [SIEM rules and workbook](infra/sentinel/README.md)
 
 ## Requirements
 

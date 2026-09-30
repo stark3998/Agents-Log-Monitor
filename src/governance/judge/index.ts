@@ -36,7 +36,7 @@ export const judge: Judge = {
       maxTokens: 700,
     });
     const parsed = judgeResponseSchema.parse(result.value);
-    return {
+    const verdict: JudgeVerdict = {
       verdict: parsed.verdict,
       confidence: parsed.confidence,
       rationale: parsed.rationale,
@@ -44,7 +44,10 @@ export const judge: Judge = {
       model: result.deployment,
       tier,
       latencyMs: result.latencyMs,
+      provider: 'foundry',
     };
+    if (result.usage) verdict.usage = result.usage;
+    return verdict;
   },
 };
 

@@ -32,6 +32,12 @@ export interface JudgeVerdict {
   model: string;
   tier: 'fast' | 'escalation';
   latencyMs: number;
+  /** Provider that produced the verdict (defaults to foundry when absent). */
+  provider?: 'foundry' | 'jev';
+  /** Token usage reported by the provider (used for cost comparison). */
+  usage?: { inputTokens: number; outputTokens: number };
+  /** Raw structured signals (Jev question ids → probability / score / label). */
+  signals?: Record<string, number | string>;
 }
 
 export interface Decision {
@@ -198,6 +204,8 @@ export interface Incident {
   report?: string;
   recommendations?: IncidentRecommendation[];
   containment?: { action: string; target: string; at: string; by: string }[];
+  /** Extra context when the incident was raised by the monitoring fleet (alert ids, OWASP/ATLAS mapping…). */
+  fleet?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -261,6 +269,106 @@ export interface SimulationResult {
 
 export interface LaneDraftResult { lane: LaneRecord; rationale?: string; simulation?: SimulationResult }
 
+// ── TypeSafe Jev shadow mode (mirrored from src/governance/jev/types.ts) ──────
+
+/** Kinds posted by the Python AgentMon Fleet (enterprise monitoring of Foundry / Copilot Studio agents). */
+export type JevFleetShadowKind =
+  | 'fleet_realtime' | 'fleet_intent' | 'fleet_alignment' | 'fleet_evasion' | 'fleet_injection' | 'fleet_code';
+
+/** Which decision point a shadow record compares. */
+export type JevShadowKind = 'judge' | 'injection' | 'guardian_triage' | 'session_score' | JevFleetShadowKind;
+
+/** Raw Jev signals keyed by question id (Noul probability, Score expectation or Choice label). */
+export type JevSignals = Record<string, number | string>;
+
+/** The authoritative (non-Jev) outcome the shadow is compared against. */
+export interface JevShadowBaseline {
+  provider: 'foundry' | 'rules' | 'prompt-shields' | 'guardian' | 'heuristic' | 'none';
+  model?: string;
+  verdict?: string;
+  score?: number;
+  confidence?: number;
+  latencyMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  stage?: string;
+}
+
+/** Jev's shadow answer (never authoritative). */
+export interface JevShadowOutcome {
+  model: string;
+  verdict?: string;
+  score?: number;
+  confidence?: number;
+  latencyMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  policy?: string;
+  rationale?: string;
+  laneClause?: string;
+  signals: JevSignals;
+  /** Set when the Jev call failed; verdict/score are then undefined. */
+  error?: string;
+}
+
+export interface JevShadowRecord {
+  id: string;
+  kind: JevShadowKind;
+  decisionId?: string;
+  requestId?: string;
+  sessionId?: string;
+  agentId?: string;
+  laneId?: string;
+  checkpoint?: string;
+  toolName?: string;
+  baseline: JevShadowBaseline;
+  jev: JevShadowOutcome;
+  /** Jev and baseline reached the same categorical outcome (undefined when not comparable). */
+  agree?: boolean;
+  createdAt: string;
+}
+
+export interface JevShadowPage { items: JevShadowRecord[]; cursor?: string | null }
+
+export interface LatencyStats { count: number; p50: number; p95: number; p99: number; mean: number }
+
+/** Per-kind comparison summary returned by `GET /api/gov/jev/summary`. */
+export interface JevKindSummary {
+  kind: JevShadowKind;
+  total: number;
+  compared: number;
+  agreed: number;
+  agreementRate: number;
+  jevErrors: number;
+  /** confusion[baselineVerdict][jevVerdict] = count. */
+  confusion: Record<string, Record<string, number>>;
+  jevStricter: number;
+  jevLooser: number;
+  latency: { jev: LatencyStats; baseline: LatencyStats };
+  tokens: { jevInput: number; baselineInput: number; baselineOutput: number };
+  estCostUsd: { jev: number; baseline?: number };
+  baselineModels: string[];
+  jevModels: string[];
+}
+
+export interface JevShadowSummary {
+  enabled: boolean;
+  model: string;
+  since?: string;
+  until?: string;
+  kinds: JevKindSummary[];
+  queue: { enqueued: number; completed: number; failed: number; dropped: number; inFlight: number; queued: number };
+}
+
+export interface JevShadowFilters {
+  kind?: JevShadowKind;
+  sessionId?: string;
+  laneId?: string;
+  agree?: boolean;
+  since?: string;
+  until?: string;
+}
+
 // ── Role helpers (mirror of src/governance/auth.ts roleClaims) ────────────
 
 export function expandRoles(roles: readonly Role[] | undefined): Set<Role> {
@@ -294,6 +402,8 @@ export const govKeys = {
   incidents: (state?: string) => ['gov', 'incidents', state ?? 'all'] as const,
   incident: (id: string) => ['gov', 'incident', id] as const,
   intent: (sessionId: string) => ['gov', 'intent', sessionId] as const,
+  jevSummary: (rangeKey: string) => ['gov', 'jev', 'summary', rangeKey] as const,
+  jevShadow: (f: JevShadowFilters & { range?: string }) => ['gov', 'jev', 'shadow', f] as const,
 };
 
 const enc = encodeURIComponent;
@@ -378,6 +488,57 @@ export const useIncidents = (state?: string) =>
 
 export const useIncident = (id: string | null) =>
   useQuery({ queryKey: govKeys.incident(id ?? ''), queryFn: () => api<Incident>(`gov/incidents/${enc(id!)}`), enabled: !!id, retry: noRetryOn4xx });
+
+/** Jev-vs-baseline shadow summary for a time range (`GET /api/gov/jev/summary`). */
+export const useJevSummary = (rangeKey: string) =>
+  useQuery({
+    queryKey: govKeys.jevSummary(rangeKey),
+    queryFn: () => { const b = rangeBounds(rangeKey); return api<JevShadowSummary>('gov/jev/summary', { since: b.from, until: b.to }); },
+    placeholderData: keepPreviousData,
+    retry: noRetryOn4xx,
+  });
+
+const jevShadowParams = (f: JevShadowFilters, limit: number, cursor?: string): Record<string, string | undefined> => ({
+  kind: f.kind, sessionId: f.sessionId, laneId: f.laneId, agree: f.agree == null ? undefined : String(f.agree),
+  since: f.since, until: f.until, limit: String(limit), cursor,
+});
+
+export const fetchJevShadow = (f: JevShadowFilters, limit = 50, cursor?: string) =>
+  api<JevShadowPage>('gov/jev/shadow', jevShadowParams(f, limit, cursor));
+
+/**
+ * Cursor-paged shadow records (`GET /api/gov/jev/shadow`). When `rangeKey` is given, `since`/`until`
+ * are resolved at fetch time so refetches use a fresh "now".
+ */
+export const useJevShadowInfinite = (f: JevShadowFilters, rangeKey?: string, pageSize = 50, enabled = true) =>
+  useInfiniteQuery({
+    queryKey: govKeys.jevShadow({ ...f, range: rangeKey }),
+    queryFn: ({ pageParam }) => {
+      const b = rangeKey ? rangeBounds(rangeKey) : null;
+      return fetchJevShadow({ ...f, since: f.since ?? b?.from, until: f.until ?? b?.to }, pageSize, pageParam);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: last => last.cursor ?? undefined,
+    enabled,
+    retry: noRetryOn4xx,
+  });
+
+/** Judge shadow records for one session (conversation drawer). Returns [] when Jev/governance is unavailable. */
+export const useSessionJevShadow = (sessionId: string | null, kind: JevShadowKind = 'judge') =>
+  useQuery({
+    queryKey: ['gov', 'jev', 'session', sessionId ?? '', kind] as const,
+    queryFn: async () => {
+      try {
+        return (await fetchJevShadow({ sessionId: sessionId!, kind }, 500)).items;
+      } catch (e) {
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500) return [];
+        throw e;
+      }
+    },
+    enabled: !!sessionId,
+    staleTime: 30_000,
+    retry: false,
+  });
 
 export const useSessionIntent = (sessionId: string | null) =>
   useQuery({ queryKey: govKeys.intent(sessionId ?? ''), queryFn: () => api<SessionIntent | null>(`gov/sessions/${enc(sessionId!)}/intent`), enabled: !!sessionId, retry: false });

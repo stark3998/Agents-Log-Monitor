@@ -17,12 +17,15 @@ import { startPolicyFileSync } from './policies/loader';
 import { startClassifierConfigRefresh } from './classifiers';
 import policiesRouter from './routes/policies';
 import postureRouter from './routes/posture';
+import fleetRouter from './routes/fleet';
 import { startPostureScheduler } from './posture';
 import { setLimits } from './limits';
 import { initSqliteTelemetry } from './telemetry-sqlite';
 import { mountMcp } from './mcp';
 import { startSync } from './sync';
 import { startAlerts } from './alerts';
+import { startJevShadowRetention } from './jev/retention';
+import { startJevSessionScoring } from './jev/sessions';
 
 /**
  * Governance bootstrap. Called from server.ts after initDb().
@@ -82,6 +85,7 @@ export async function initGovernance(app: Express): Promise<void> {
   govBus.on('posture.updated', p => broadcast({ type: 'gov.posture', endpointId: p.endpointId }));
   govBus.on('incident.created', i => broadcast({ type: 'gov.incident', incident: i }));
   govBus.on('incident.updated', i => broadcast({ type: 'gov.incident', incident: i }));
+  govBus.on('fleet.alerts', alerts => broadcast({ type: 'gov.fleet.alerts', alerts }));
 
   app.use('/v1', authenticate, decideRouter);
   app.use('/hooks', authenticate, requireRole('Agent'), hooksRouter);
@@ -102,11 +106,14 @@ export async function initGovernance(app: Express): Promise<void> {
   }
   app.use('/api/gov', authenticate, policiesRouter);
   app.use('/api/gov', authenticate, postureRouter);
+  app.use('/api/gov', authenticate, fleetRouter);
   app.use('/api/gov', authenticate, adminRouter);
   mountMcp(app);
 
   startAlerts();
   startSync();
   startPostureScheduler();
+  startJevShadowRetention(); // no-op unless Jev shadow mode is enabled
+  startJevSessionScoring(); // no-op unless Jev shadow mode + JEV_SHADOW_SESSIONS are enabled
   console.log(`[governance] mode=${govConfig.mode} store=${govConfig.mode === 'cloud' ? 'cosmos' : 'sqlite'} judge=${govConfig.foundry.enabled ? 'foundry' : 'off'} shields=${govConfig.contentSafety.enabled ? 'on' : 'off'}`);
 }

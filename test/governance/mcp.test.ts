@@ -154,7 +154,7 @@ describe('governance MCP server', () => {
         'list_incidents', 'get_incident', 'list_lanes', 'get_lane', 'simulate_lane',
         'verify_audit_chain', 'get_overview_stats', 'approve_action', 'deny_action',
         'pause_agent', 'resume_agent', 'quarantine_session', 'propose_lane_change',
-        'create_incident', 'update_incident', 'acknowledge_incident',
+        'create_incident', 'update_incident', 'acknowledge_incident', 'jev_shadow_summary',
       ]));
     } finally {
       await close();

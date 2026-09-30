@@ -170,6 +170,8 @@ class AgentProfile(BaseModel):
     forbidden_capabilities: list[Capability] = Field(default_factory=list)
     allowed_destinations: list[str] = Field(default_factory=list)
     out_of_scope: list[str] = Field(default_factory=list)
+    enforce: bool | None = None  # real-time hooks: True block / False observe / None inherit FLEET_HOOKS_MODE
+    block_threshold: int | None = None
     derived_by: str = "heuristic"  # heuristic | llm | lane | manual
     definition_hash: str = ""
     updated_at: datetime = Field(default_factory=utcnow)

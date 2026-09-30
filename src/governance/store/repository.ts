@@ -1,7 +1,9 @@
 import type {
-  Approval, ApprovalState, Decision, Incident, IncidentState, LaneRecord, LaneStatus, PolicyRecord,
-  PostureEndpointRecord, PostureFindingRecord, PostureFindingState, RegisteredAgent, SessionIntent, Severity, Verdict,
+  Approval, ApprovalState, Decision, FleetAlert, FleetAlertQuery, Incident, IncidentState, LaneRecord, LaneStatus,
+  PolicyRecord, PostureEndpointRecord, PostureFindingRecord, PostureFindingState, RegisteredAgent, SessionIntent,
+  Severity, Verdict,
 } from '../types';
+import type { JevShadowQuery, JevShadowRecord } from '../jev/types';
 
 /**
  * Persistence contract for governance data. Two implementations:
@@ -108,6 +110,18 @@ export interface GovernanceStore {
   getIncident(id: string): Promise<Incident | undefined>;
   updateIncident(id: string, patch: Partial<Incident>): Promise<Incident | undefined>;
   listIncidents(q?: IncidentQuery): Promise<Incident[]>;
+
+  // Monitoring-fleet alerts (idempotent on alert_id).
+  upsertFleetAlerts(alerts: FleetAlert[]): Promise<number>;
+  getFleetAlert(id: string): Promise<FleetAlert | undefined>;
+  listFleetAlerts(q?: FleetAlertQuery): Promise<FleetAlert[]>;
+
+  // Jev shadow comparisons — non-authoritative, NOT part of the hash-chained audit log.
+  /** Insert-only: if a record with the same id already exists it is left untouched (no overwrite). */
+  appendJevShadow(r: JevShadowRecord): Promise<JevShadowRecord>;
+  queryJevShadow(q: JevShadowQuery): Promise<Page<JevShadowRecord>>;
+  /** Delete shadow records older than `before` (ISO); returns the number removed. */
+  pruneJevShadow(before: string): Promise<number>;
 
   // Outboxes (alerts, local→cloud sync). Items are opaque JSON.
   enqueue(box: 'alerts' | 'sync', item: unknown): Promise<void>;

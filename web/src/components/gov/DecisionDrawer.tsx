@@ -8,7 +8,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { useDecision, type Decision, type JudgeVerdict } from '../../api/governance';
 import { CategoryChip, ToneChip } from '../Chips';
 import { CopyButton } from '../Common';
-import { fmtDateTime, fmtDuration } from '../../lib/format';
+import { fmtDateTime, fmtDuration, fmtNum } from '../../lib/format';
 import { QueryError } from './GovCommon';
 import { STAGE_LABEL, VerdictChip, verdictTone } from './GovChips';
 
@@ -40,9 +40,15 @@ export function JudgeCard({ j }: { j: JudgeVerdict }) {
         <ToneChip tone={j.tier === 'escalation' ? t.severity.medium : t.severity.info} label={j.tier === 'escalation' ? 'Escalation judge' : 'Fast judge'} sx={{ height: 20, fontSize: 11 }} />
         <ToneChip tone={verdictTone(t, j.verdict)} label={j.verdict} sx={{ height: 20, fontSize: 11, textTransform: 'capitalize' }} />
         <Box component="code" sx={{ fontFamily: 'var(--am-mono)', fontSize: 11.5, color: 'text.secondary' }}>{j.model}</Box>
+        {j.provider && <ToneChip tone={t.severity.info} label={j.provider === 'jev' ? 'Jev' : 'Foundry'} aria-label={`Provider ${j.provider}`} sx={{ height: 20, fontSize: 11 }} />}
         <Box sx={{ flex: 1 }} />
         <Typography variant="caption">{fmtDuration(j.latencyMs)}</Typography>
       </Stack>
+      {j.usage && (
+        <Typography variant="caption" component="div" sx={{ mt: 0.5, fontVariantNumeric: 'tabular-nums' }} data-testid="judge-tokens">
+          {fmtNum(j.usage.inputTokens)} input / {fmtNum(j.usage.outputTokens)} output tokens
+        </Typography>
+      )}
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1 }}>
         <Typography variant="caption" sx={{ flexShrink: 0 }}>Confidence</Typography>
         <LinearProgress variant="determinate" value={pct} aria-label={`Confidence ${pct}%`} sx={{ flex: 1, height: 6, borderRadius: 3 }} />

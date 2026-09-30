@@ -43,6 +43,12 @@ ALERT_TYPES: dict[str, AlertTypeInfo] = {
         ["AML.T0107", "AML.T0068"]),
     "REPEATED_BLOCKED_ATTEMPTS": AlertTypeInfo(
         "Agent repeatedly retried blocked actions", Severity.MEDIUM, ["LLM06"], ["ASI10"], ["AML.T0107"]),
+    "USER_PERSISTENCE_AFTER_BLOCK": AlertTypeInfo(
+        "User kept pushing for a refused or blocked request", Severity.MEDIUM, ["LLM01"], ["ASI01", "ASI09"],
+        ["AML.T0054", "AML.T0051.000"]),
+    "JAILBREAK_ATTEMPT": AlertTypeInfo(
+        "User prompt contains jailbreak or instruction-override patterns", Severity.MEDIUM, ["LLM01"], ["ASI01"],
+        ["AML.T0054", "AML.T0051.000"]),
     "SOCIAL_ENGINEERING_USER": AlertTypeInfo(
         "Agent asked the user to perform a blocked action", Severity.HIGH, ["LLM06"], ["ASI09", "ASI10"], []),
     "PROMPT_INJECTION_SUSPECTED": AlertTypeInfo(
@@ -63,6 +69,11 @@ ALERT_TYPES: dict[str, AlertTypeInfo] = {
         "Agent definition or security configuration changed", Severity.LOW, ["LLM03"], ["ASI04"], ["AML.T0081"]),
     "SENSITIVE_CONTROL_PLANE_OP": AlertTypeInfo(
         "Sensitive control-plane operation on AI resources", Severity.MEDIUM, [], ["ASI03"], ["AML.T0055"]),
+    "TELEMETRY_TAMPERING": AlertTypeInfo(
+        "Monitoring or diagnostic settings on AI resources were disabled or deleted", Severity.HIGH, [], ["ASI10"],
+        ["AML.T0107"]),
+    "ACCESS_DENIED_BURST": AlertTypeInfo(
+        "Burst of denied data-plane requests against AI resources", Severity.MEDIUM, [], ["ASI03"], ["AML.T0040"]),
     "RUNAWAY_LOOP": AlertTypeInfo(
         "Agent is looping or consuming excessive resources", Severity.MEDIUM, ["LLM10"], ["ASI08"], ["AML.T0034.002"]),
     "SESSION_RISK_ESCALATION": AlertTypeInfo(

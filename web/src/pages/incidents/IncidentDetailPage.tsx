@@ -141,6 +141,7 @@ export function IncidentDetailPage() {
       </Stack>
       <Typography variant="caption">
         Trigger <b>{inc.trigger}</b> · opened {fmtDateTime(inc.createdAt)} · updated <RelativeTime iso={inc.updatedAt} />
+        {inc.fleet && <> · <Box component={RouterLink} to={`/fleet?incident=${encodeURIComponent(inc.id)}`} sx={{ color: 'primary.main' }}>View fleet alerts</Box></>}
       </Typography>
       {investigate.isError && <Alert severity="error" role="alert">{errorMessage(investigate.error)}</Alert>}
       {investigate.isSuccess && <Alert severity="success" role="status">Guardian investigation complete — report updated.</Alert>}

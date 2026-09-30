@@ -30,7 +30,14 @@ CREATE TABLE IF NOT EXISTS alerts (
 CREATE TABLE IF NOT EXISTS incidents (id TEXT PRIMARY KEY, session_id TEXT, agent_key TEXT, body TEXT NOT NULL,
   updated_at TEXT, synced INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS identities (object_id TEXT PRIMARY KEY, kind TEXT, name TEXT, agent_key TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS baselines (key TEXT PRIMARY KEY, body TEXT NOT NULL, updated_at TEXT);
 """
+
+# Additive, idempotent schema changes for existing state files.
+_MIGRATIONS = [
+    "ALTER TABLE denials ADD COLUMN actor TEXT NOT NULL DEFAULT 'agent'",
+    "ALTER TABLE denials ADD COLUMN tool_call_id TEXT",
+]
 
 
 def _iso(dt: datetime) -> str:
@@ -47,6 +54,11 @@ class State:
         with self._lock:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.executescript(_SCHEMA)
+            for ddl in _MIGRATIONS:
+                try:
+                    self._db.execute(ddl)
+                except sqlite3.OperationalError:
+                    pass  # already applied
 
     def close(self) -> None:
         self._db.close()
@@ -86,15 +98,23 @@ class State:
         return new
 
     def unprocessed_events(self, limit: int = 5000) -> list[CanonicalEvent]:
-        rows = self._exec("SELECT body FROM events WHERE processed=0 ORDER BY occurred_at LIMIT ?", (limit,)).fetchall()
+        rows = self._exec("SELECT body FROM events WHERE processed=0 ORDER BY occurred_at, rowid LIMIT ?",
+                          (limit,)).fetchall()
         return [CanonicalEvent.model_validate_json(r["body"]) for r in rows]
+
+    def update_event(self, e: CanonicalEvent) -> None:
+        self._exec("UPDATE events SET body=? WHERE id=?", (e.model_dump_json(), e.id))
+
+    def update_alert(self, a: Alert) -> None:
+        self._exec("UPDATE alerts SET body=?, incident_id=? WHERE fingerprint=?",
+                   (a.model_dump_json(), a.incident_id, a.fingerprint))
 
     def mark_processed(self, ids: Iterable[str]) -> None:
         with self._lock:
             self._db.executemany("UPDATE events SET processed=1 WHERE id=?", [(i,) for i in ids])
 
     def session_events(self, session_id: str, limit: int = 400) -> list[CanonicalEvent]:
-        rows = self._exec("SELECT body FROM events WHERE session_id=? ORDER BY occurred_at DESC LIMIT ?",
+        rows = self._exec("SELECT body FROM events WHERE session_id=? ORDER BY occurred_at DESC, rowid DESC LIMIT ?",
                           (session_id, limit)).fetchall()
         return [CanonicalEvent.model_validate_json(r["body"]) for r in reversed(rows)]
 
@@ -135,21 +155,31 @@ class State:
                    (session_id, agent_key, json.dumps(body, default=str), _iso(datetime.now(timezone.utc))))
 
     # ── denial ledger ───────────────────────────────────────────────────────
-    def add_denial(self, event: CanonicalEvent, reason: str, source: str) -> None:
+    def add_denial(self, event: CanonicalEvent, reason: str, source: str, actor: str = "agent",
+                   action_text: str | None = None) -> None:
+        """actor='agent' for denied agent actions; actor='user' for refused/filtered user requests."""
+        if event.tool_call_id and event.session_id and self._exec(
+                "SELECT 1 FROM denials WHERE session_id=? AND tool_call_id=? AND actor=? LIMIT 1",
+                (event.session_id, event.tool_call_id, actor)).fetchone():
+            return  # the call and its (blocked) result describe one denial, not two
         caps = sorted({e.capability.value for e in event.effects})
         keys = sorted({e.key() for e in event.effects})
         self._exec("INSERT OR IGNORE INTO denials(id,session_id,agent_key,user_id,occurred_at,capabilities,effect_keys,"
-                   "action_text,reason,source) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                   "action_text,reason,source,actor,tool_call_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                    (event.id, event.session_id, event.agent_key, event.user_id, _iso(event.occurred_at),
-                    json.dumps(caps), json.dumps(keys), event.action_text(1500), reason, source))
+                    json.dumps(caps), json.dumps(keys), action_text or event.action_text(1500), reason, source, actor,
+                    event.tool_call_id))
 
     def denials_for(self, session_id: str | None, agent_key: str, user_id: str | None, before: datetime,
-                    window: timedelta = timedelta(hours=24)) -> list[dict[str, Any]]:
+                    window: timedelta = timedelta(hours=24), actor: str | None = None) -> list[dict[str, Any]]:
         since = _iso(before - window)
-        rows = self._exec(
-            "SELECT * FROM denials WHERE occurred_at >= ? AND occurred_at <= ? AND "
-            "(session_id = ? OR (agent_key = ? AND user_id IS ? AND user_id IS NOT NULL)) ORDER BY occurred_at",
-            (since, _iso(before), session_id, agent_key, user_id)).fetchall()
+        sql = ("SELECT * FROM denials WHERE occurred_at >= ? AND occurred_at <= ? AND "
+               "(session_id = ? OR (agent_key = ? AND user_id IS ? AND user_id IS NOT NULL))")
+        params: list[Any] = [since, _iso(before), session_id, agent_key, user_id]
+        if actor:
+            sql += " AND actor = ?"
+            params.append(actor)
+        rows = self._exec(sql + " ORDER BY occurred_at", params).fetchall()
         out = []
         for r in rows:
             d = dict(r)
@@ -184,8 +214,8 @@ class State:
             self._db.executemany("UPDATE alerts SET delivered=1 WHERE fingerprint=?", [(a.fingerprint,) for a in alerts])
 
     def session_alerts(self, session_id: str) -> list[Alert]:
-        rows = self._exec("SELECT body FROM alerts").fetchall()
-        return [a for a in (Alert.model_validate_json(r["body"]) for r in rows) if a.session_id == session_id]
+        rows = self._exec("SELECT body FROM alerts WHERE json_extract(body, '$.session_id') = ?", (session_id,)).fetchall()
+        return [Alert.model_validate_json(r["body"]) for r in rows]
 
     def all_alerts(self, limit: int = 500) -> list[Alert]:
         rows = self._exec("SELECT body FROM alerts ORDER BY last_seen DESC LIMIT ?", (limit,)).fetchall()
@@ -222,6 +252,45 @@ class State:
     def get_identity(self, object_id: str) -> dict[str, Any] | None:
         row = self._exec("SELECT * FROM identities WHERE object_id=?", (object_id.lower(),)).fetchone()
         return dict(row) if row else None
+
+    def list_identities(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._exec("SELECT * FROM identities").fetchall()]
+
+    def sessions_with_source(self, session_ids: set[str], source: str) -> set[str]:
+        out: set[str] = set()
+        ids = [s for s in session_ids if s]
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            rows = self._exec(f"SELECT DISTINCT session_id FROM events WHERE source = ? AND session_id IN "
+                              f"({','.join('?' * len(chunk))})", [source, *chunk]).fetchall()
+            out |= {r["session_id"] for r in rows}
+        return out
+
+    # ── statistical baselines (EWMA etc.) ───────────────────────────────────
+    def get_baseline(self, key: str) -> dict[str, Any]:
+        row = self._exec("SELECT body FROM baselines WHERE key=?", (key,)).fetchone()
+        return json.loads(row["body"]) if row else {}
+
+    def put_baseline(self, key: str, body: dict[str, Any]) -> None:
+        self._exec("INSERT INTO baselines(key,body,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE "
+                   "SET body=excluded.body, updated_at=excluded.updated_at",
+                   (key, json.dumps(body, default=str), _iso(datetime.now(timezone.utc))))
+
+    def list_sessions(self, limit: int = 200) -> list[dict[str, Any]]:
+        rows = self._exec("SELECT session_id, agent_key, body, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?",
+                          (limit,)).fetchall()
+        return [{"session_id": r["session_id"], "agent_key": r["agent_key"], "updated_at": r["updated_at"],
+                 **json.loads(r["body"])} for r in rows]
+
+    def list_incidents(self, limit: int = 200) -> list[dict[str, Any]]:
+        rows = self._exec("SELECT body FROM incidents ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
+        return [json.loads(r["body"]) for r in rows]
+
+    def stats(self) -> dict[str, int]:
+        out = {}
+        for t in ("events", "profiles", "sessions", "denials", "alerts", "incidents", "identities"):
+            out[t] = self._exec(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"]
+        return out
 
 
 def blocked(event: CanonicalEvent) -> bool:

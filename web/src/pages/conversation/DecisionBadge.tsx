@@ -6,6 +6,7 @@ import { useSessionDecisions, type Decision } from '../../api/governance';
 import type { TimelineItem, ToolItem } from '../../api/types';
 import { matchDecisions } from '../../lib/decisionMatch';
 import { decisionLabel, STAGE_LABEL, verdictTone } from '../../components/gov/GovChips';
+import { JevShadowForDecision, judgeUsageLabel } from '../../components/gov/JevCommon';
 import { fmtDuration } from '../../lib/format';
 
 const Ctx = createContext<ReadonlyMap<number, Decision>>(new Map());
@@ -31,6 +32,7 @@ export function DecisionBadge({ decision: d }: { decision: Decision }) {
   const tone = verdictTone(t, d.verdict, d.wouldDeny);
   const label = decisionLabel(d);
   const judge = d.judge?.[d.judge.length - 1];
+  const judgeUsage = judge ? judgeUsageLabel(judge) : null;
   return (
     <>
       <Chip
@@ -60,10 +62,12 @@ export function DecisionBadge({ decision: d }: { decision: Decision }) {
           {judge && (
             <Box sx={{ pl: 1.25, borderLeft: '3px solid', borderColor: 'divider' }}>
               <Typography variant="caption" component="div">Judge ({judge.tier}, {Math.round(judge.confidence * 100)}% confident)</Typography>
+              {judgeUsage && <Typography variant="caption" component="div" data-testid="judge-usage">{judgeUsage}</Typography>}
               <Typography variant="body2" sx={{ fontSize: 12.5 }}>{judge.rationale}</Typography>
             </Box>
           )}
           {d.tainted && <Typography variant="caption" sx={{ color: t.severity.high.fg }}>Session tainted by untrusted content</Typography>}
+          <JevShadowForDecision decision={d} />
           <Button size="small" component={RouterLink} to={`/enforcements?d=${encodeURIComponent(d.id)}`} sx={{ alignSelf: 'flex-start' }}>
             Open decision
           </Button>
