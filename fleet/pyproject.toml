@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentmon-fleet"
+version = "0.1.0"
+description = "Monitoring agent fleet for Microsoft Foundry and Copilot Studio agents"
+requires-python = ">=3.12"
+dependencies = [
+  "agent-framework>=1.19,<2",
+  "agent-framework-foundry>=1.13,<2",
+  "agent-framework-openai>=1.14,<2",
+  "azure-identity>=1.19,<2",
+  "azure-monitor-query>=1.4,<3",
+  "azure-monitor-ingestion>=1.0,<2",
+  "azure-storage-blob>=12.20,<13",
+  "httpx>=0.27,<1",
+  "openai>=1.99",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.4,<3",
+  "python-dotenv>=1.0,<2",
+  "pyyaml>=6.0,<7",
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "pyjwt[crypto]>=2.9,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<9", "pytest-asyncio>=0.24,<1"]
+
+[project.scripts]
+agentmon-fleet = "agentmon_fleet.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentmon_fleet"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
