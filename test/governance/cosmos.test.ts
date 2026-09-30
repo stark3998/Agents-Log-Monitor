@@ -131,7 +131,7 @@ function matches(d: Doc, sql: string, p: Map<string, any>) {
 }
 function clone<T>(v: T): T { return JSON.parse(JSON.stringify(v)); }
 function fakeStore(extra?: Partial<Record<string, FakeContainer>>) {
-  const containers = Object.fromEntries(['lanes', 'agents', 'sessions', 'decisions', 'audit', 'approvals', 'incidents', 'outbox'].map(n => [n, new FakeContainer(n)])) as Record<string, FakeContainer>;
+  const containers = Object.fromEntries(['lanes', 'agents', 'sessions', 'decisions', 'audit', 'approvals', 'incidents', 'outbox', 'posture'].map(n => [n, new FakeContainer(n)])) as Record<string, FakeContainer>;
   Object.assign(containers, extra);
   return { store: new CosmosGovernanceStore({ tenantId: 't1', containers: containers as any, maxChainRetries: 5 }), containers };
 }

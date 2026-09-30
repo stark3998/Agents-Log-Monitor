@@ -19,6 +19,8 @@ for (const name of fs.readdirSync(path.join(root, 'lanes')).filter(f => /\.ya?ml
 
 process.env.AGENT_MONITOR_DB = dbFile;
 process.env.GOVERNANCE_LANES_DIR = lanesDir;
+process.env.GOVERNANCE_POLICIES_DIR = path.join(tempRoot, 'policies');
+process.env.POSTURE_SCAN_INTERVAL_MIN = '0';
 process.env.GOVERNANCE_ENFORCE = 'true';
 process.env.GOVERNANCE_TRUST_LOOPBACK = 'true';
 process.env.GOVERNANCE_LANES_AUTO_ACTIVATE = 'false';
@@ -326,5 +328,82 @@ approval: { channels: [dashboard], timeoutSec: 1 }
       const cur = Date.parse(overview.trend[i].t);
       expect(cur - prev).toBe(24 * 3600_000);
     }
+  });
+});
+
+describe('policies, presets and classifiers API e2e', () => {
+  it('serves the preset catalog and classifier list', async () => {
+    const presets = await json<Record<string, unknown[]>>('/api/gov/presets');
+    expect(presets.capability.length).toBe(53);
+    const cls = await json<{ items: { code: string; enforceable: boolean }[] }>('/api/gov/classifiers');
+    expect(cls.items.find(c => c.code === 'us_ssn')?.enforceable).toBe(true);
+  });
+
+  it('validates, saves, activates and enforces a global policy through the Claude hook', async () => {
+    const yaml = 'id: e2e-no-paste\nname: No paste sites\nglobal: true\nmode: enforce\nseverity: high\nrules:\n  - id: paste\n    action: deny\n    network: [paste_sites]\n';
+    await expect(json('/api/gov/policies/validate', { method: 'POST', body: JSON.stringify({ yaml }) })).resolves.toMatchObject({ ok: true });
+    const bad = await fetch(`${baseUrl}/api/gov/policies`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: adminCookie }, body: JSON.stringify({ yaml: 'id: bad\nrules:\n  - id: r\n    action: deny\n    capability: [nope]\n' }) });
+    expect(bad.status).toBe(400);
+    const saved = await json<{ policy: { id: string; version: number }; status: string }>('/api/gov/policies', { method: 'POST', body: JSON.stringify({ yaml }) });
+    expect(saved.status).toBe('draft');
+    const activated = await json<{ status: string }>(`/api/gov/policies/e2e-no-paste/versions/${saved.policy.version}/activate`, { method: 'POST', body: '{}' });
+    expect(activated.status).toBe('active');
+    const res = claudeDecision(await claudePreTool('s-pol', 'Bash', { command: 'curl https://pastebin.com/raw/abc' }, 'pol-1'));
+    expect(res.permissionDecision).toBe('deny');
+    expect(res.permissionDecisionReason).toMatch(/No paste sites|paste/);
+    const sim = await json<{ evaluated: number; ruleHits: Record<string, number> }>('/api/gov/policies/simulate', { method: 'POST', body: JSON.stringify({ yaml }) });
+    expect(sim.evaluated).toBeGreaterThanOrEqual(0);
+    await json(`/api/gov/policies/e2e-no-paste/versions/${saved.policy.version}/archive`, { method: 'POST', body: '{}' });
+  });
+
+  it('toggles a classifier and tests custom classifiers without storing raw values', async () => {
+    const patched = await json<{ code: string; isActive: boolean }>('/api/gov/classifiers/date_of_birth', { method: 'PATCH', body: JSON.stringify({ isActive: true }) });
+    expect(patched.isActive).toBe(true);
+    const t = await json<{ detections: { key: string; maskedSample: string }[] }>('/api/gov/classifiers/test', { method: 'POST', body: JSON.stringify({ text: 'ticket PRJ-123456 opened', custom: { code: 'jira_ticket', label: 'Ticket', category: 'Code', sensitivity: 'Low', pattern: 'PRJ-\\d{6}' } }) });
+    expect(t.detections.map(d => d.key)).toContain('jira_ticket');
+    const list = await json<{ items: { code: string }[] }>('/api/gov/classifiers');
+    expect(list.items.some(c => c.code === 'jira_ticket')).toBe(false);
+    await json('/api/gov/classifiers/date_of_birth', { method: 'PATCH', body: JSON.stringify({ isActive: false }) });
+  });
+});
+
+describe('posture API e2e', () => {
+  const report = (findings: unknown[]) => ({
+    scannerVersion: 'e2e', scannedAt: new Date().toISOString(),
+    endpoint: { endpointId: 'e2e-remote-endpoint', hostname: 'build-agent-7', os: 'linux', osRelease: '6.1', user: 'ci' },
+    inventory: { agents: [{ id: 'aider', name: 'Aider', kind: 'cli', version: '0.80.0', configPaths: [] }], mcpServers: [], extensions: [], scheduledTasks: [], accounts: [], errors: [] },
+    findings,
+  });
+
+  it('lists all 30 checks with config', async () => {
+    const checks = await json<{ items: { id: string; enabled: boolean; remediation: { summary: string } }[] }>('/api/gov/posture/checks');
+    expect(checks.items).toHaveLength(30);
+    expect(checks.items.every(c => c.enabled && c.remediation.summary)).toBe(true);
+  });
+
+  it('ingests reports, lists findings and refuses remote auto-fix', async () => {
+    const res = await json<{ endpointId: string; new: number }>('/api/gov/posture/reports', { method: 'POST', body: JSON.stringify(report([
+      { checkId: 'aider-yes-mode-enabled', severity: 'high', category: 'Configuration', title: 'Aider Yes Mode Enabled', subject: 'file:/home/ci/.aider.conf.yml', summary: 'yes-always: true', evidence: { key: 'yes-always' }, fixable: true },
+    ])) });
+    expect(res).toMatchObject({ endpointId: 'e2e-remote-endpoint', new: 1 });
+    const findings = await json<{ id: string; state: string; hostname: string }[]>('/api/gov/posture/findings?state=open&endpointId=e2e-remote-endpoint');
+    expect(findings).toHaveLength(1);
+    expect(findings[0].hostname).toBe('build-agent-7');
+    const fix = await fetch(`${baseUrl}/api/gov/posture/findings/${findings[0].id}/fix`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: adminCookie }, body: '{}' });
+    expect(fix.status).toBe(409);
+    const summary = await json<{ open: number; bySeverity: Record<string, number> }>('/api/gov/posture/summary');
+    expect(summary.bySeverity.high).toBeGreaterThanOrEqual(1);
+    const endpoints = await json<{ id: string; isLocal: boolean; agents: unknown[] }[]>('/api/gov/posture/endpoints');
+    expect(endpoints.find(e => e.id === 'e2e-remote-endpoint')).toMatchObject({ isLocal: false });
+    const suppressed = await json<{ state: string }>(`/api/gov/posture/findings/${findings[0].id}/suppress`, { method: 'POST', body: JSON.stringify({ reason: 'CI sandbox' }) });
+    expect(suppressed.state).toBe('suppressed');
+  });
+
+  it('rejects malformed reports and invalid config', async () => {
+    const bad = await fetch(`${baseUrl}/api/gov/posture/reports`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: adminCookie }, body: JSON.stringify({ endpoint: {} }) });
+    expect(bad.status).toBe(400);
+    const cfg = await fetch(`${baseUrl}/api/gov/posture/config`, { method: 'PUT', headers: { 'content-type': 'application/json', cookie: adminCookie }, body: JSON.stringify({ alertMinSeverity: 'nope' }) });
+    expect(cfg.status).toBe(400);
+    await expect(json('/api/gov/posture/config', { method: 'PUT', body: JSON.stringify({ orgDomains: ['contoso.com'], alertMinSeverity: 'high', checks: { 'ai-agent-sprawl': { enabled: false } } }) })).resolves.toMatchObject({ orgDomains: ['contoso.com'] });
   });
 });

@@ -2,11 +2,14 @@ import crypto from 'crypto';
 import { all, exec, get, run, transaction } from '../../db';
 import { GENESIS_HASH, hashDecision, verifyChain } from '../audit';
 import type {
-  Approval, Decision, Incident, LaneRecord, LaneStatus, RegisteredAgent, SessionIntent,
+  Approval, Decision, Incident, LaneRecord, LaneStatus, PolicyRecord, PostureEndpointRecord, PostureFindingRecord,
+  RegisteredAgent, SessionIntent,
 } from '../types';
 import type {
-  ApprovalQuery, AuditVerifyResult, DecisionQuery, GovernanceStore, IncidentQuery, Page,
+  ApprovalQuery, AuditVerifyResult, DecisionQuery, GovernanceStore, IncidentQuery, Page, PostureFindingQuery, SettingDoc,
 } from './repository';
+
+type VersionRow = { doc: string; status: string; yaml: string | null; updated_at: string; updated_by: string | null };
 
 /**
  * Local governance store on the monitor's node:sqlite database. Documents are stored as JSON with
@@ -85,7 +88,148 @@ export class SqliteGovernanceStore implements GovernanceStore {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_gov_outbox_box ON gov_outbox(box, claimed_at);
+      CREATE TABLE IF NOT EXISTS gov_policies (
+        id         TEXT NOT NULL,
+        version    INTEGER NOT NULL,
+        status     TEXT NOT NULL,
+        doc        TEXT NOT NULL,
+        yaml       TEXT,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT,
+        PRIMARY KEY (id, version)
+      );
+      CREATE TABLE IF NOT EXISTS gov_settings (
+        key        TEXT PRIMARY KEY,
+        doc        TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+      );
+      CREATE TABLE IF NOT EXISTS gov_posture_endpoints (
+        id           TEXT PRIMARY KEY,
+        hostname     TEXT NOT NULL,
+        last_scan_at TEXT NOT NULL,
+        doc          TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS gov_posture_findings (
+        id           TEXT PRIMARY KEY,
+        endpoint_id  TEXT NOT NULL,
+        check_id     TEXT NOT NULL,
+        severity     TEXT NOT NULL,
+        state        TEXT NOT NULL,
+        level        TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        doc          TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_gov_posture_find_ep ON gov_posture_findings(endpoint_id, state);
+      CREATE INDEX IF NOT EXISTS idx_gov_posture_find_state ON gov_posture_findings(state, severity);
     `);
+  }
+
+  // ── Posture ──────────────────────────────────────────────────────────────
+
+  async upsertPostureEndpoint(e: PostureEndpointRecord): Promise<PostureEndpointRecord> {
+    run(`INSERT INTO gov_posture_endpoints (id, hostname, last_scan_at, doc) VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET hostname = excluded.hostname, last_scan_at = excluded.last_scan_at, doc = excluded.doc`,
+      [e.id, e.hostname, e.lastScanAt, JSON.stringify(e)]);
+    return e;
+  }
+
+  async getPostureEndpoint(id: string): Promise<PostureEndpointRecord | undefined> {
+    const r = get<{ doc: string }>('SELECT doc FROM gov_posture_endpoints WHERE id = ?', [id]);
+    return r ? JSON.parse(r.doc) : undefined;
+  }
+
+  async listPostureEndpoints(): Promise<PostureEndpointRecord[]> {
+    return all<{ doc: string }>('SELECT doc FROM gov_posture_endpoints ORDER BY last_scan_at DESC').map(r => JSON.parse(r.doc));
+  }
+
+  async upsertPostureFinding(f: PostureFindingRecord): Promise<PostureFindingRecord> {
+    run(`INSERT INTO gov_posture_findings (id, endpoint_id, check_id, severity, state, level, last_seen_at, doc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET severity = excluded.severity, state = excluded.state, last_seen_at = excluded.last_seen_at, doc = excluded.doc`,
+      [f.id, f.endpointId, f.checkId, f.severity, f.state, f.level, f.lastSeenAt, JSON.stringify(f)]);
+    return f;
+  }
+
+  async getPostureFinding(id: string): Promise<PostureFindingRecord | undefined> {
+    const r = get<{ doc: string }>('SELECT doc FROM gov_posture_findings WHERE id = ?', [id]);
+    return r ? JSON.parse(r.doc) : undefined;
+  }
+
+  async listPostureFindings(q: PostureFindingQuery = {}): Promise<PostureFindingRecord[]> {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (q.state?.length) { where.push(`state IN (${q.state.map(() => '?').join(',')})`); params.push(...q.state); }
+    if (q.severity?.length) { where.push(`severity IN (${q.severity.map(() => '?').join(',')})`); params.push(...q.severity); }
+    if (q.endpointId) { where.push('endpoint_id = ?'); params.push(q.endpointId); }
+    if (q.checkId) { where.push('check_id = ?'); params.push(q.checkId); }
+    if (q.level) { where.push('level = ?'); params.push(q.level); }
+    const limit = Math.min(Math.max(q.limit ?? 5000, 1), 20000);
+    return all<{ doc: string }>(
+      `SELECT doc FROM gov_posture_findings ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY last_seen_at DESC LIMIT ?`,
+      [...params, limit]).map(r => JSON.parse(r.doc));
+  }
+
+  // ── Policies ─────────────────────────────────────────────────────────────
+
+  private policyRow(r: VersionRow): PolicyRecord {
+    return { policy: JSON.parse(r.doc), status: r.status as LaneStatus, yaml: r.yaml ?? undefined, updatedAt: r.updated_at, updatedBy: r.updated_by ?? undefined };
+  }
+
+  async listPolicies(status?: LaneStatus[]): Promise<PolicyRecord[]> {
+    const statusFilter = status?.length ? `WHERE status IN (${status.map(() => '?').join(',')})` : '';
+    return all<VersionRow>(
+      `SELECT p.* FROM gov_policies p
+       JOIN (SELECT id, MAX(version) AS v FROM gov_policies ${statusFilter} GROUP BY id) m ON m.id = p.id AND m.v = p.version
+       ORDER BY p.id`, status ?? []).map(r => this.policyRow(r));
+  }
+
+  async getPolicy(id: string, version?: number): Promise<PolicyRecord | undefined> {
+    const r = version != null
+      ? get<VersionRow>('SELECT * FROM gov_policies WHERE id = ? AND version = ?', [id, version])
+      : get<VersionRow>(`SELECT * FROM gov_policies WHERE id = ? AND status = 'active' ORDER BY version DESC LIMIT 1`, [id]);
+    return r ? this.policyRow(r) : undefined;
+  }
+
+  async listPolicyVersions(id: string): Promise<PolicyRecord[]> {
+    return all<VersionRow>('SELECT * FROM gov_policies WHERE id = ? ORDER BY version DESC', [id]).map(r => this.policyRow(r));
+  }
+
+  async savePolicy(rec: PolicyRecord): Promise<PolicyRecord> {
+    return transaction(() => {
+      if (rec.status === 'active') {
+        run(`UPDATE gov_policies SET status = 'archived' WHERE id = ? AND status = 'active' AND version <> ?`, [rec.policy.id, rec.policy.version]);
+      }
+      run(
+        `INSERT INTO gov_policies (id, version, status, doc, yaml, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id, version) DO UPDATE SET status = excluded.status, doc = excluded.doc, yaml = excluded.yaml,
+           updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+        [rec.policy.id, rec.policy.version, rec.status, JSON.stringify(rec.policy), rec.yaml ?? null, rec.updatedAt, rec.updatedBy ?? null],
+      );
+      return rec;
+    });
+  }
+
+  async setPolicyStatus(id: string, version: number, status: LaneStatus, by?: string): Promise<void> {
+    transaction(() => {
+      if (status === 'active') run(`UPDATE gov_policies SET status = 'archived' WHERE id = ? AND status = 'active'`, [id]);
+      run('UPDATE gov_policies SET status = ?, updated_at = ?, updated_by = ? WHERE id = ? AND version = ?',
+        [status, new Date().toISOString(), by ?? null, id, version]);
+    });
+  }
+
+  // ── Settings ─────────────────────────────────────────────────────────────
+
+  async getSetting<T = unknown>(key: string): Promise<SettingDoc<T> | undefined> {
+    const r = get<{ key: string; doc: string; updated_at: string; updated_by: string | null }>('SELECT * FROM gov_settings WHERE key = ?', [key]);
+    return r ? { key: r.key, value: JSON.parse(r.doc) as T, updatedAt: r.updated_at, updatedBy: r.updated_by ?? undefined } : undefined;
+  }
+
+  async putSetting<T = unknown>(key: string, value: T, by?: string): Promise<SettingDoc<T>> {
+    const doc: SettingDoc<T> = { key, value, updatedAt: new Date().toISOString(), updatedBy: by };
+    run(`INSERT INTO gov_settings (key, doc, updated_at, updated_by) VALUES (?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET doc = excluded.doc, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+      [key, JSON.stringify(value), doc.updatedAt, by ?? null]);
+    return doc;
   }
 
   // ── Lanes ────────────────────────────────────────────────────────────────

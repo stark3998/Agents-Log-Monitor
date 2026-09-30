@@ -13,6 +13,11 @@ import intelligenceRouter from './routes/intelligence';
 import hooksRouter from './hooks/router';
 import enrollRouter from './routes/enroll';
 import { startLaneFileSync } from './lanes/loader';
+import { startPolicyFileSync } from './policies/loader';
+import { startClassifierConfigRefresh } from './classifiers';
+import policiesRouter from './routes/policies';
+import postureRouter from './routes/posture';
+import { startPostureScheduler } from './posture';
 import { setLimits } from './limits';
 import { initSqliteTelemetry } from './telemetry-sqlite';
 import { mountMcp } from './mcp';
@@ -64,6 +69,8 @@ export async function initGovernance(app: Express): Promise<void> {
   await initGovernanceStore();
   await initRuntime();
   startLaneFileSync();
+  startPolicyFileSync();
+  startClassifierConfigRefresh();
 
   // Forward governance events to dashboard clients.
   govBus.on('decision', d => broadcast({ type: 'gov.decision', decision: d }));
@@ -71,6 +78,8 @@ export async function initGovernance(app: Express): Promise<void> {
   govBus.on('approval.resolved', a => broadcast({ type: 'gov.approval', approval: a }));
   govBus.on('agent.updated', a => broadcast({ type: 'gov.agent', agent: a }));
   govBus.on('lane.updated', l => broadcast({ type: 'gov.lane', lane: { id: l.lane.id, version: l.lane.version, status: l.status } }));
+  govBus.on('policy.updated', p => broadcast({ type: 'gov.policy', policy: { id: p.policy.id, version: p.policy.version, status: p.status } }));
+  govBus.on('posture.updated', p => broadcast({ type: 'gov.posture', endpointId: p.endpointId }));
   govBus.on('incident.created', i => broadcast({ type: 'gov.incident', incident: i }));
   govBus.on('incident.updated', i => broadcast({ type: 'gov.incident', incident: i }));
 
@@ -91,10 +100,13 @@ export async function initGovernance(app: Express): Promise<void> {
     const { default: syncIngestRouter } = await import('./sync/ingest-router');
     app.use('/api/gov', authenticate, syncIngestRouter);
   }
+  app.use('/api/gov', authenticate, policiesRouter);
+  app.use('/api/gov', authenticate, postureRouter);
   app.use('/api/gov', authenticate, adminRouter);
   mountMcp(app);
 
   startAlerts();
   startSync();
+  startPostureScheduler();
   console.log(`[governance] mode=${govConfig.mode} store=${govConfig.mode === 'cloud' ? 'cosmos' : 'sqlite'} judge=${govConfig.foundry.enabled ? 'foundry' : 'off'} shields=${govConfig.contentSafety.enabled ? 'on' : 'off'}`);
 }

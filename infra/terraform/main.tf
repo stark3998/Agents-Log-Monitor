@@ -256,6 +256,7 @@ locals {
     GOVERNANCE_ENFORCE          = tostring(var.governance_enforce)
     GOVERNANCE_TRUST_LOOPBACK   = "false" # never trust loopback callers in the cloud
     GOVERNANCE_LANES_DIR        = "/app/lanes"
+    GOVERNANCE_POLICIES_DIR     = "/app/policies"
     AGENT_MONITOR_DB            = "/app/data/agent-monitor.db"
     ACS_ENDPOINT                = var.communication_enabled ? module.communication[0].endpoint : ""
     ALERT_EMAIL_FROM            = var.communication_enabled ? module.communication[0].sender_address : ""

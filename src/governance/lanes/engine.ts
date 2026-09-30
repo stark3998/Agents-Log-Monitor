@@ -4,36 +4,21 @@ import type { ActionFeatures } from '../features';
 import type { LaneEngine, RuleEvaluation, RuleMatch } from '../contracts';
 import type { ActionRequest, Lane, LaneCondition, RegisteredAgent, RiskLevel } from '../types';
 import { riskRank } from '../../analytics/risk';
+import { resolveClassifierCode } from '../../analytics/classifiers/config';
+import {
+  capabilityMatches, expandHostValues, expandPathValues, hostMatches, mcpCategoryMatches,
+} from '../../policies/presets';
+import { withPolicies } from '../policies';
 import { syncLaneFilesOnce } from './loader';
+import { syncPolicyFilesOnce } from '../policies/loader';
+import { anyGlob, appliesToMatches, globMatch, globToRegExp } from './glob';
+
+export { anyGlob, appliesToMatches, globMatch, globToRegExp };
 
 const RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical']);
 const commandRegexCache = new Map<string, RegExp | null>();
 const warnedInvalidCommandRegex = new Set<string>();
-
-export function globToRegExp(glob: string): RegExp {
-  let s = glob.replace(/\\/g, '/');
-  let out = '';
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (c === '*') {
-      if (s[i + 1] === '*') { out += '.*'; i++; }
-      else out += '[^/]*';
-    } else if (c === '?') out += '.';
-    else out += c.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
-  }
-  return new RegExp(`^${out}$`, 'i');
-}
-
-export function globMatch(pattern: string, value: string | undefined | null): boolean {
-  if (!value) return false;
-  const p = pattern === '*' ? '**' : pattern;
-  return globToRegExp(p).test(String(value).replace(/\\/g, '/'));
-}
-
-function anyGlob(patterns: string[] | undefined, values: (string | undefined | null)[]): boolean {
-  if (!patterns?.length) return true;
-  return patterns.some(p => values.some(v => globMatch(p, v)));
-}
+const expansionCache = new Map<string, string[]>();
 
 export function expandPattern(input: string, workspace?: string): string {
   let out = input;
@@ -61,12 +46,33 @@ function commandRegex(pattern: string): RegExp | null {
 }
 
 function applies(lane: Lane, agent: RegisteredAgent, req: ActionRequest): boolean {
-  const a = lane.appliesTo ?? {};
-  if (a.surfaces?.length && !a.surfaces.includes('*') && !a.surfaces.includes(agent.surface)) return false;
-  if (a.agents?.length && !a.agents.includes('*') && !anyGlob(a.agents, [agent.id, agent.externalId, agent.name, req.agent.externalId, req.agent.name])) return false;
-  if (a.repos?.length && !a.repos.includes('*') && !anyGlob(a.repos, [req.agent.repo, req.agent.cwd])) return false;
-  if (a.users?.length && !a.users.includes('*') && !anyGlob(a.users, [req.agent.user])) return false;
-  return true;
+  return appliesToMatches(lane.appliesTo, agent, req);
+}
+
+function cachedExpansion(key: string, compute: () => string[]): string[] {
+  let hit = expansionCache.get(key);
+  if (!hit) {
+    hit = compute();
+    if (expansionCache.size > 2000) expansionCache.clear();
+    expansionCache.set(key, hit);
+  }
+  return hit;
+}
+
+/** Action paths made absolute: `~` expanded, relative paths resolved against the workspace. */
+function absolutePaths(paths: string[], workspace?: string): string[] {
+  return paths.map(p => {
+    const e = expandPattern(p, workspace);
+    if (/^([a-z]:)?\//i.test(e)) return e;
+    return workspace ? path.posix.join(workspace.replace(/\\/g, '/'), e) : `./${e.replace(/^\.\//, '')}`;
+  });
+}
+
+function presetPathMatch(kind: 'filesystem' | 'credential', values: string[], f: ActionFeatures, workspace?: string): boolean {
+  const globs = cachedExpansion(`${kind}|${workspace ?? ''}|${values.join('\n')}`, () => expandPathValues(kind, values, { workspace }));
+  if (!globs.length) return false;
+  const paths = absolutePaths(f.paths, workspace);
+  return globs.some(g => paths.some(p => globMatch(g, p)));
 }
 
 function ruleId(bucket: RuleMatch['bucket'], c: LaneCondition, i: number): string {
@@ -105,6 +111,25 @@ function conditionMatches(c: LaneCondition, req: ActionRequest, f: ActionFeature
     if (!c.detector.some(d => keys.includes(d))) return false;
   }
   if (c.tainted != null && c.tainted !== ctx.tainted) return false;
+  if (c.filesystem?.length && !presetPathMatch('filesystem', c.filesystem, f, ctx.workspace)) return false;
+  if (c.credential?.length && !presetPathMatch('credential', c.credential, f, ctx.workspace)) return false;
+  if (c.network?.length) {
+    const globs = cachedExpansion(`net|${c.network.join('\n')}`, () => expandHostValues(c.network!));
+    const hosts = [...f.hosts, ...f.domains];
+    if (!globs.some(g => hosts.some(h => hostMatches(g, h)))) return false;
+  }
+  if (c.capability?.length && !capabilityMatches(c.capability, new Set(f.capabilities ?? []))) return false;
+  if (c.mcpCategory?.length && !mcpCategoryMatches(c.mcpCategory, { server: f.mcpServer, identities: f.mcpIdentities ?? [] })) return false;
+  if (c.operation?.length && !c.operation.some(o => (f.operations ?? []).includes(o))) return false;
+  if (c.classifier?.length) {
+    const wanted = c.classifier.map(resolveClassifierCode);
+    const found = new Set(f.detections.map(d => d.key));
+    if (!wanted.some(w => found.has(w))) {
+      const missing = wanted.filter(w => !found.has(w));
+      const extra = f.classify ? f.classify(missing) : [];
+      if (!extra.some(d => wanted.includes(d.key))) return false;
+    }
+  }
   return true;
 }
 
@@ -139,9 +164,14 @@ class DefaultLaneEngine implements LaneEngine {
     if (this.synced) return;
     this.synced = true;
     await syncLaneFilesOnce().catch(err => console.warn('[lanes] initial sync failed:', err));
+    await syncPolicyFilesOnce().catch(err => console.warn('[policies] initial sync failed:', err));
   }
 
   async resolve(agent: RegisteredAgent, req: ActionRequest): Promise<Lane> {
+    return withPolicies(await this.resolveBase(agent, req), agent, req);
+  }
+
+  private async resolveBase(agent: RegisteredAgent, req: ActionRequest): Promise<Lane> {
     await this.ensureSynced();
     if (agent.laneId) {
       const explicit = await govStore().getLane(agent.laneId);
@@ -163,8 +193,11 @@ class DefaultLaneEngine implements LaneEngine {
       }
       return out;
     };
-    const deny = evalBucket('deny')[0];
-    return { deny, approve: evalBucket('approve'), judge: evalBucket('judge'), allow: evalBucket('allow') };
+    const denies = evalBucket('deny');
+    // Deny always wins; among denies prefer one that actually enforces over an observe-only policy.
+    const enforcing = (m: RuleMatch) => m.condition.modeOverride === 'enforce' || (m.condition.modeOverride !== 'observe' && lane.mode !== 'observe');
+    const deny = denies.find(enforcing) ?? denies[0];
+    return { deny, approve: evalBucket('approve'), judge: evalBucket('judge'), allow: evalBucket('allow'), alert: evalBucket('alert') };
   }
 }
 

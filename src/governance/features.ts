@@ -1,9 +1,10 @@
 import crypto from 'crypto';
 import { canonicalToolName, classifyTool, mcpFromName } from '../analytics/classify';
-import { detect, type Detection } from '../analytics/detectors';
+import { detect, detectCodes, type Detection } from '../analytics/detectors';
 import { extractDomains } from '../analytics/domains';
 import { assessRisk, type RiskHit } from '../analytics/risk';
-import type { ActionRequest, RiskLevel, ToolCategory } from './types';
+import { detectCapabilities } from '../policies/presets/capabilities';
+import type { ActionRequest, PolicyOperation, RiskLevel, ToolCategory } from './types';
 import { canonicalJson } from './audit';
 
 /**
@@ -27,10 +28,18 @@ export interface ActionFeatures {
   detections: Detection[];
   risk: RiskHit[];
   riskLevel: RiskLevel | null;
+  /** Capability preset ids exhibited by the action (closed over `subsetOf`). */
+  capabilities: string[];
+  /** Coarse operations on the target. */
+  operations: PolicyOperation[];
+  /** Known identities of the MCP server (`npm:<pkg>`, hosts…) from enforcer metadata. */
+  mcpIdentities: string[];
   /** Stable, human-debuggable signature for loop detection. */
   signature: string;
   /** One-line human summary (unredacted — redact before storing/sending). */
   summary: string;
+  /** Run specific classifiers on demand (non-enumerable; not serialised). */
+  classify?: (codes: string[]) => Detection[];
 }
 
 const HOST_RE = /\b(?:https?|wss?|ftp):\/\/(\[[0-9a-f:]+\]|[a-z0-9.-]+)(?::\d+)?/gi;
@@ -115,8 +124,48 @@ export function extractFeatures(req: ActionRequest): ActionFeatures {
         : null;
   const signaturePrefix = clip((command || paths.join(',') || hosts.join(',') || argText || req.text || req.result || req.checkpoint).replace(/\s+/g, ' '), 120);
   const signature = `${canonicalTool || req.checkpoint}|${signaturePrefix}|${shortHash(signatureMaterial)}`;
-  return {
+  const capabilities = req.checkpoint === 'pre_tool' || req.checkpoint === 'spawn'
+    ? [...detectCapabilities({ category, toolName, canonicalTool, command, mcpServer })]
+    : [];
+  const features: ActionFeatures = {
     checkpoint: req.checkpoint, toolName, canonicalTool, category, mcpServer, command, paths, hosts, domains, detections, risk,
-    riskLevel: risk[0]?.level ?? null, signature, summary,
+    riskLevel: risk[0]?.level ?? null, capabilities, operations: operationsOf(category, capabilities),
+    mcpIdentities: mcpIdentitiesOf(req.meta), signature, summary,
   };
+  const cache = new Map<string, Detection[]>();
+  Object.defineProperty(features, 'classify', {
+    enumerable: false,
+    value: (codes: string[]) => {
+      const key = codes.slice().sort().join(',');
+      let hit = cache.get(key);
+      if (!hit) { hit = scan ? detectCodes(scan, codes) : []; cache.set(key, hit); }
+      return hit;
+    },
+  });
+  return features;
+}
+
+function operationsOf(category: ToolCategory, caps: string[]): PolicyOperation[] {
+  const out = new Set<PolicyOperation>();
+  const has = (c: string) => caps.includes(c);
+  if (category === 'READ' || has('file_read')) out.add('read');
+  if (category === 'WRITE' || has('file_write') || has('file_copy')) out.add('write');
+  if (has('file_delete')) out.add('delete');
+  if (category === 'EXEC') out.add('execute');
+  return [...out];
+}
+
+function mcpIdentitiesOf(meta: Record<string, unknown> | undefined): string[] {
+  if (!meta) return [];
+  const out: string[] = [];
+  const push = (v: unknown) => { if (typeof v === 'string' && v) out.push(v); };
+  const ids = meta.mcpIdentities;
+  if (Array.isArray(ids)) ids.forEach(push);
+  push(meta.mcpIdentity);
+  push(meta.mcpPackage);
+  const url = meta.mcpUrl ?? meta.mcpServerUrl;
+  if (typeof url === 'string') {
+    try { out.push(new URL(url).hostname.toLowerCase()); } catch { /* ignore */ }
+  }
+  return [...new Set(out)];
 }

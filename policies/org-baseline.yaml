@@ -1,0 +1,51 @@
+id: org-baseline
+name: Organisation baseline
+description: >-
+  Org-wide guardrails applied to every lane. Mode `inherit` follows each lane's mode, so observe
+  lanes only record would-deny decisions. Switch to `mode: enforce` to block even in observe lanes.
+enabled: true
+global: true
+mode: inherit
+severity: high
+tags: [baseline, exfiltration, credentials]
+scope:
+  surfaces: ['*']
+rules:
+  - id: cloud-metadata
+    action: deny
+    description: Cloud instance metadata endpoints hand out machine credentials
+    network: [cloud_metadata]
+  - id: drive-by-exec
+    action: deny
+    description: Remote script piped straight into a shell
+    capability: [curl_to_shell]
+  - id: exfil-destinations
+    action: deny
+    description: Uploads to file-sharing, paste or tunnel services
+    network: [data_exfil, paste_sites, tunnel_endpoints]
+    capability: [web_outbound_send]
+  - id: secret-egress
+    action: deny
+    description: Secrets sent out over the network
+    capability: [web_outbound_send]
+    classifier: [private_key, aws_key, github_token, ai_key, azure_conn, gcp_service_account_key, azure_ad_client_secret, stripe_secret]
+  - id: credential-stores
+    action: deny
+    description: Reads OS credential stores, password vaults or process environments
+    credential: [keychain, password_vaults, proc_environ]
+  - id: secret-manager-reads
+    action: approve
+    description: Pulls secret values out of a secret manager
+    capability: [aws_secret_ops, kubectl_secret_ops, vault_secret_ops, onepassword_secret_ops, gcloud_secret_ops, akeyless_secret_ops]
+  - id: destructive-infra
+    action: approve
+    description: Tears down cloud or cluster resources
+    capability: [terraform_destructive_ops, kubectl_destructive_ops]
+  - id: persistence
+    action: alert
+    description: Creates persistence (scheduled tasks, services, registry, firewall)
+    capability: [scheduled_tasks, service_control, registry_modify, firewall_modify]
+  - id: capture
+    action: alert
+    description: Reads the clipboard, takes screenshots or dumps the environment
+    capability: [clipboard_read, screenshot, env_dump]

@@ -59,7 +59,7 @@ Roles:
 - `Approver`: `approve_action`, `deny_action`
 - `PolicyAdmin`: `resume_agent` and unrestricted admin/incident handling
 - Guardian containment principal: role `Agent`, kind `agent`, and id listed in `GOVERNANCE_GUARDIAN_PRINCIPALS`; may pause agents, quarantine sessions, and create/update/acknowledge incidents, but may not resume agents or dismiss/resolve incidents
-- `Viewer`: `propose_lane_change` (10 proposals/hour/principal, always saves `proposed`; monitor Guardian lanes require a user `PolicyAdmin`)
+- `Viewer`: `propose_lane_change` and `propose_policy` (10 proposals/hour/principal combined, always saves `proposed`; monitor Guardian lanes require a user `PolicyAdmin`)
 
 ## Tool catalog
 
@@ -79,6 +79,13 @@ Roles:
 | `list_lanes` | Viewer | List latest lane records by status. |
 | `get_lane` | Viewer | Fetch active or versioned lane record. |
 | `simulate_lane` | Viewer | Validate a lane and sample matching actions for review. |
+| `list_policies` | Viewer | List latest [policy](policies.md) records by status. |
+| `get_policy` | Viewer | Fetch an active or versioned policy record. |
+| `simulate_policy` | Viewer | Validate a policy and replay it over recorded tool calls (`ruleHits`, samples). |
+| `list_classifiers` | Viewer | List [data classifiers](classifiers.md) with active/enforceable flags. |
+| `list_policy_presets` | Viewer | Preset catalog for policy rules (filesystem, network, credential, capability, MCP category). |
+| `list_posture_findings` | Viewer | Endpoint [posture](posture.md) findings by state, severity, endpoint, check. |
+| `get_endpoint_inventory` | Viewer | Endpoints, or one endpoint's AI inventory (agents, MCP servers, extensions, schedules). |
 | `verify_audit_chain` | Viewer | Verify the hash-chained decision log. |
 | `get_overview_stats` | Viewer | Summarize decisions, approvals, incidents and agent states. |
 | `approve_action` | Approver | Governed approval resolution to `approved`. |
@@ -87,6 +94,7 @@ Roles:
 | `resume_agent` | PolicyAdmin | Governed resume of a registered agent. |
 | `quarantine_session` | PolicyAdmin/Guardian | Governed quarantine of a session intent. |
 | `propose_lane_change` | Viewer | Validate YAML/JSON and save as `proposed` only. |
+| `propose_policy` | Viewer | Validate a YAML/JSON policy and save as `proposed` only. |
 | `create_incident` | PolicyAdmin/Guardian | Create an incident. |
 | `update_incident` | PolicyAdmin/Guardian | Patch an incident. |
 | `acknowledge_incident` | PolicyAdmin/Guardian | Mark an open incident as investigating. |

@@ -18,14 +18,14 @@ export interface Registry {
 
 // ── lanes/ ────────────────────────────────────────────────────────────────
 export interface RuleMatch {
-  bucket: 'deny' | 'allow' | 'judge' | 'approve';
+  bucket: 'deny' | 'allow' | 'judge' | 'approve' | 'alert';
   ruleId: string;
   description: string;
   condition: LaneCondition;
 }
 
 export interface RuleEvaluation {
-  /** First matching deny rule (deny always wins). */
+  /** Winning deny rule (deny always wins; enforcing rules outrank observe-only policy rules). */
   deny?: RuleMatch;
   /** Approve (human) rules that matched. */
   approve: RuleMatch[];
@@ -33,10 +33,15 @@ export interface RuleEvaluation {
   judge: RuleMatch[];
   /** Allow rules that matched. */
   allow: RuleMatch[];
+  /** Non-blocking alert rules that matched. */
+  alert: RuleMatch[];
 }
 
 export interface LaneEngine {
-  /** Pick the lane for an agent + request (explicit assignment, then appliesTo match, then default lane). */
+  /**
+   * Pick the lane for an agent + request (explicit assignment, then appliesTo match, then default
+   * lane) and merge in applicable policies (global in scope + attached).
+   */
   resolve(agent: RegisteredAgent, req: ActionRequest): Promise<Lane>;
   /** Evaluate deterministic rules. Pure and synchronous; target < 1 ms. */
   evaluate(lane: Lane, req: ActionRequest, f: ActionFeatures, ctx: { tainted: boolean; workspace?: string }): RuleEvaluation;

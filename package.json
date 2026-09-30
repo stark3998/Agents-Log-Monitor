@@ -19,7 +19,8 @@
     "mcp": "node dist/governance/mcp/stdio.js",
     "gateway": "node dist/gateway/main.js",
     "test:gov": "vitest run test/governance",
-    "eval:redteam": "vitest run test/redteam"
+    "eval:redteam": "vitest run test/redteam",
+    "posture": "node dist/posture/cli.js"
   },
   "dependencies": {
     "@azure/cosmos": "^4.10.1",

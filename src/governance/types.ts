@@ -183,9 +183,30 @@ export interface LaneCondition {
   detector?: string[];
   /** Match only when the session is tainted. */
   tainted?: boolean;
+  /** Filesystem location preset ids (policy catalog) or path globs. */
+  filesystem?: string[];
+  /** Network destination preset ids or host globs. */
+  network?: string[];
+  /** Credential location preset ids or path globs. */
+  credential?: string[];
+  /** Capability preset ids (`shell_exec`, `web_outbound_send`…); parents match their subsets. */
+  capability?: string[];
+  /** MCP category preset ids (`mcp_code_hosting`…) or server-name globs. */
+  mcpCategory?: string[];
+  /** Enforceable data classifier codes found in the action (`us_ssn`, `aws_key`…). */
+  classifier?: string[];
+  /** Coarse operation on the target. */
+  operation?: PolicyOperation[];
   /** Free text shown in decisions. */
   description?: string;
+  /** Set on rules merged from a policy (never authored directly). */
+  policyId?: string;
+  policyVersion?: number;
+  /** Policy mode override for this rule; `undefined` inherits the lane mode. */
+  modeOverride?: 'observe' | 'enforce';
 }
+
+export type PolicyOperation = 'read' | 'write' | 'delete' | 'execute';
 
 export type FailMode = 'open' | 'closed';
 export type DataPolicy = 'redacted' | 'full' | 'metadata-only';
@@ -217,7 +238,11 @@ export interface Lane {
     judge?: LaneCondition[];
     /** Conditions that always require human approval (when mode allows). */
     approve?: LaneCondition[];
+    /** Non-blocking conditions: recorded on the decision and routed as alerts. */
+    alert?: LaneCondition[];
   };
+  /** Policy ids attached to this lane (in addition to global policies). */
+  policies?: string[];
   /** Verdict when nothing matched and the judge wasn't required. Default `allow`. */
   defaultVerdict?: 'allow' | 'deny' | 'judge';
   mode: LaneMode;
@@ -256,7 +281,7 @@ export interface Lane {
   sync?: { dataPolicy: DataPolicy };
   /** Guardian authority for agents governed by this lane. */
   guardian?: { authority: GuardianAuthority };
-  meta?: { owner?: string; createdBy?: string; source?: 'file' | 'ui' | 'ai-draft'; notes?: string };
+  meta?: { owner?: string; createdBy?: string; source?: 'file' | 'ui' | 'ai-draft'; notes?: string; policyStamp?: string; appliedPolicies?: { id: string; version: number; global: boolean }[] };
 }
 
 export type LaneStatus = 'active' | 'draft' | 'proposed' | 'archived';
@@ -268,6 +293,105 @@ export interface LaneRecord {
   updatedBy?: string;
   /** Raw YAML as authored (for lanes-as-code round-tripping). */
   yaml?: string;
+}
+
+// ── Policies ───────────────────────────────────────────────────────────────
+
+export type PolicyAction = 'deny' | 'approve' | 'judge' | 'allow' | 'alert';
+
+export interface PolicyRule extends Omit<LaneCondition, 'policyId' | 'policyVersion' | 'modeOverride'> {
+  id: string;
+  action: PolicyAction;
+}
+
+/**
+ * Reusable rule set. Global policies apply to every lane within `scope`; others apply only to lanes
+ * that list them in `policies`. Rules merge into the lane's buckets; deny always wins.
+ */
+export interface Policy {
+  id: string;
+  version: number;
+  name?: string;
+  description?: string;
+  enabled: boolean;
+  global: boolean;
+  scope?: Lane['appliesTo'];
+  /** `inherit` uses the lane mode; `enforce` enforces even in observe lanes; `observe` never blocks. */
+  mode?: 'inherit' | 'observe' | 'enforce';
+  severity?: Severity;
+  tags?: string[];
+  rules: PolicyRule[];
+  meta?: { owner?: string; createdBy?: string; source?: 'file' | 'ui' | 'ai-draft' | 'builtin'; notes?: string };
+}
+
+export interface PolicyRecord {
+  policy: Policy;
+  status: LaneStatus;
+  updatedAt: string;
+  updatedBy?: string;
+  yaml?: string;
+}
+
+// ── Endpoint posture ───────────────────────────────────────────────────────
+
+export type PostureFindingState = 'open' | 'resolved' | 'suppressed';
+
+/** Latest scan of one endpoint. `inventory` is the scanner's EndpointInventory (src/posture/types.ts). */
+export interface PostureEndpointRecord {
+  id: string;
+  hostname: string;
+  user: string;
+  os: string;
+  osRelease?: string;
+  lastScanAt: string;
+  scannerVersion?: string;
+  source: 'local' | 'cli' | 'device';
+  deviceId?: string;
+  inventory: Record<string, unknown> & { agents?: { id: string; name: string; version?: string }[]; accounts?: { agentId: string; account: string }[] };
+  findingCounts: Partial<Record<Severity, number>>;
+  errors?: string[];
+}
+
+export interface PostureFindingRecord {
+  /** sha1(endpointId|checkId|subject) — stable across scans. */
+  id: string;
+  endpointId: string;
+  hostname: string;
+  checkId: string;
+  level: 'endpoint' | 'fleet';
+  title: string;
+  severity: Severity;
+  category: string;
+  subject: string;
+  summary: string;
+  /** Key names, paths, masked samples only — never raw secret values. */
+  evidence: Record<string, unknown>;
+  fixable: boolean;
+  state: PostureFindingState;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt?: string;
+  suppression?: { reason: string; by: string; at: string; until?: string };
+  incidentId?: string;
+}
+
+export interface PostureCheckSetting {
+  enabled?: boolean;
+  severity?: Severity;
+  /** Endpoint id / hostname / user globs the check applies to (default all endpoints). */
+  scope?: { endpoints?: string[]; users?: string[] };
+}
+
+export interface PostureConfig {
+  checks: Record<string, PostureCheckSetting>;
+  /** Tenant organisational e-mail domains (Non-Corporate User, Antigravity corporate sessions). */
+  orgDomains: string[];
+  /** Additional corporate SaaS hosts for the Antigravity session check. */
+  corporateSaasDomains?: string[];
+  /** Minimum severity that raises an alert for new / reopened findings. */
+  alertMinSeverity: Severity;
+  /** Open an incident for new critical findings. */
+  incidentOnCritical: boolean;
 }
 
 // ── Registry ───────────────────────────────────────────────────────────────

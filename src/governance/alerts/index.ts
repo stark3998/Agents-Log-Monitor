@@ -6,7 +6,7 @@ import { govBus } from '../events';
 import { govStore } from '../store';
 import type { AlertChannel, Approval, Decision, Incident, Lane, Severity } from '../types';
 
-type AlertKind = 'decision' | 'approval' | 'incident';
+type AlertKind = 'decision' | 'approval' | 'incident' | 'policy' | 'posture';
 
 interface AlertPayload {
   kind: AlertKind;
@@ -44,7 +44,62 @@ const handlers = {
   incidentUpdated: (i: Incident) => {
     if (i.state === 'contained') void onIncident(i).catch(err => console.error('[alerts] incident alert failed:', err));
   },
+  policyAlert: (a: { decision: Decision; ruleIds: string[]; descriptions: string[] }) => {
+    void onPolicyAlert(a).catch(err => console.error('[alerts] policy alert failed:', err));
+  },
 };
+
+/** Severity of a policy alert: the highest `severity` among the policies whose rules matched. */
+async function policyAlertSeverity(ruleIds: string[]): Promise<Severity> {
+  let best: Severity = 'medium';
+  let seen = false;
+  for (const id of new Set(ruleIds.map(r => /^policy:([^/]+)\//.exec(r)?.[1]).filter((x): x is string => !!x))) {
+    const s = (await govStore().getPolicy(id).catch(() => undefined))?.policy.severity;
+    if (s && (!seen || rank(s) > rank(best))) { best = s; seen = true; }
+  }
+  return best;
+}
+
+async function onPolicyAlert(a: { decision: Decision; ruleIds: string[]; descriptions: string[] }): Promise<void> {
+  const d = a.decision;
+  const severity = await policyAlertSeverity(a.ruleIds);
+  const channels = await channelsFor(d.laneId, severity);
+  if (!channels.length) return;
+  await enqueue({
+    kind: 'policy',
+    severity,
+    title: `Policy alert: ${safeText(a.descriptions[0] ?? a.ruleIds[0])}`,
+    channels,
+    dedupeKey: `policy:${d.agentId}:${a.ruleIds.join(',')}`,
+    count: 1,
+    createdAt: nowIso(),
+    data: redactDeep({
+      decisionId: d.id, agentId: d.agentId, laneId: d.laneId, sessionId: d.sessionId, toolName: d.toolName,
+      reason: a.descriptions.join('; '), ruleIds: a.ruleIds, verdict: d.effectiveVerdict,
+      sessionUrl: dashboardUrl(`/conversations?c=${encodeURIComponent(d.sessionId)}`),
+    }),
+  });
+}
+
+/** Route a posture finding alert (new / reopened finding at or above the configured severity). */
+export async function alertPostureFinding(f: { id: string; checkId: string; title: string; severity: Severity; endpointId: string; hostname?: string; subject?: string; summary?: string }): Promise<void> {
+  const channels = await channelsFor('default', f.severity);
+  if (!channels.length) return;
+  await enqueue({
+    kind: 'posture',
+    severity: f.severity,
+    title: `Posture: ${safeText(f.title)}`,
+    channels,
+    dedupeKey: `posture:${f.id}`,
+    count: 1,
+    createdAt: nowIso(),
+    data: redactDeep({
+      findingId: f.id, checkId: f.checkId, endpoint: f.hostname ?? f.endpointId, subject: f.subject,
+      reason: f.summary ?? f.title,
+      url: dashboardUrl(`/posture?finding=${encodeURIComponent(f.id)}`),
+    }),
+  });
+}
 
 function nowIso(): string { return new Date().toISOString(); }
 
@@ -319,6 +374,7 @@ export function startAlerts(): void {
   govBus.on('approval.requested', handlers.approval);
   govBus.on('incident.created', handlers.incidentCreated);
   govBus.on('incident.updated', handlers.incidentUpdated);
+  govBus.on('policy.alert', handlers.policyAlert);
   worker = setInterval(() => { void processAlertsBatch().catch(err => console.error('[alerts] worker failed:', err)); }, 1000);
   worker.unref?.();
   void processAlertsBatch().catch(err => console.error('[alerts] worker failed:', err));
@@ -336,6 +392,7 @@ export function __resetAlertsForTests(): void {
     govBus.off('approval.requested', handlers.approval);
     govBus.off('incident.created', handlers.incidentCreated);
     govBus.off('incident.updated', handlers.incidentUpdated);
+    govBus.off('policy.alert', handlers.policyAlert);
   }
   started = false;
   throttle.clear();

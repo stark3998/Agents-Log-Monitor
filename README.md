@@ -20,6 +20,9 @@ Every decision goes into a hash-chained audit log. You can query all of it from 
 | MCP gateway that governs any MCP client (Foundry agents, Copilot Studio, IDEs) | `npm run gateway`, [docs/mcp-gateway.md](docs/mcp-gateway.md) |
 | SDKs for custom agents: Agent Framework, Semantic Kernel, LangChain, OpenAI Agents | [packages/sdk-ts](packages/sdk-ts/README.md), [packages/sdk-python](packages/sdk-python/README.md) |
 | Lanes-as-code, UI editor, AI-drafted lanes, replay against history | [docs/lanes.md](docs/lanes.md) |
+| Reusable **policies** (global or attached to lanes) built from presets: filesystem, network, credential, capability and MCP category | [docs/policies.md](docs/policies.md), [policies/org-baseline.yaml](policies/org-baseline.yaml) |
+| 96 **data classifiers** (secrets, PII, financial, healthcare…) with checksum validation, toggles and custom regex | [docs/classifiers.md](docs/classifiers.md) |
+| **Endpoint posture**: 30 checks for risky AI-agent configuration (auto-approve, bypass flags, third-party extensions, exposed tokens…), with alerts and one-click fixes | `npm run posture`, [docs/posture.md](docs/posture.md) |
 | MCP server to ask "what did my agents do, what was blocked and why?" | `/mcp`, `npm run mcp`, [docs/mcp.md](docs/mcp.md) |
 | Guardian investigator agent, lane drafter and "Ask the monitor" chat (Python, Agent Framework on Foundry) | [docs/intelligence.md](docs/intelligence.md) |
 | Hybrid deployment: local enforcers plus an Azure control plane (Container Apps, Cosmos DB, Redis, Entra ID) | [docs/cloud-mode.md](docs/cloud-mode.md), [infra/README.md](infra/README.md) |

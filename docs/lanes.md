@@ -68,7 +68,22 @@ All fields present in one condition must match (AND). List values match if any i
 | `command` | Regexes tested against the shell command text |
 | `detector` | Sensitive-data detector keys (`github_token`, `aws_key`…) found in the arguments |
 | `tainted` | `true` matches only while the session is tainted by detected prompt injection |
+| `filesystem`, `credential`, `network`, `capability`, `mcpCategory`, `classifier`, `operation` | Preset-aware conditions shared with [policies](policies.md#rule-conditions), such as `capability: [web_outbound_send]`, `network: [paste_sites]` or `classifier: [us_ssn]` |
 | `id`, `description` | Shown in decisions, the audit log and deny reasons |
+
+## Rule buckets
+
+| Bucket | Effect |
+|---|---|
+| `deny` | Always wins |
+| `approve` | Needs a human |
+| `judge` | Needs the LLM judge |
+| `allow` | Allowed when nothing above applies |
+| `alert` | Non-blocking: the rule id is recorded on the decision and a `policy` alert is routed |
+
+## Policies
+
+`policies: [no-exfil, pii-guard]` attaches reusable [policies](policies.md) to a lane. Global policies apply without being listed. At decision time their rules are merged into the lane's buckets with ids `policy:<policyId>/<ruleId>`, and deny wins across all sources. `GET /api/gov/policies/effective?laneId=` shows the merged rule set. Lane simulation includes applicable policies.
 
 ## Defaults
 

@@ -6,7 +6,7 @@ import { DB_PATH } from '../db';
 import { resolveEnvFile } from '../env-path';
 import { extractFeatures, type ActionFeatures } from './features';
 import { systemGuard, type SystemGuardContext } from './system-guard';
-import type { JudgeInput, RuleEvaluation } from './contracts';
+import type { JudgeInput, RuleEvaluation, RuleMatch } from './contracts';
 import type { ActionRequest, Decision, FailMode, JudgeVerdict, Lane, LaneMode, RegisteredAgent, Verdict } from './types';
 import { govConfig } from './config';
 import { govBus } from './events';
@@ -19,6 +19,7 @@ import { limits } from './limits';
 import { approvals } from './approvals';
 import { govStore } from './store';
 import { canonicalJson } from './audit';
+import { policyDir } from './policies/loader';
 
 export interface DecideOptions {
   blocking: boolean;
@@ -35,6 +36,12 @@ interface Candidate {
   approvalId?: string;
   approver?: string;
   cacheable?: boolean;
+  /** Mode forced by a policy rule (`enforce` override in an observe lane, or observe-only deny). */
+  modeOverride?: LaneMode;
+  /** Observe-only policy denies that matched but did not block (recorded as would-deny). */
+  observed?: { ruleIds: string[]; reasons: string[] };
+  /** Non-blocking alert rules that matched. */
+  alerts?: { ruleIds: string[]; descriptions: string[] };
 }
 
 interface CacheEntry { candidate: Candidate; expires: number }
@@ -75,7 +82,7 @@ function hashCacheKey(value: unknown): string {
 }
 function cacheKey(lane: Lane, req: ActionRequest, f: ActionFeatures, tainted: boolean, scope: 'global' | 'session'): string {
   const session = scope === 'session' ? req.sessionId : '*';
-  return `${scope}:${session}|${lane.id}@${lane.version}|${hashCacheKey({
+  return `${scope}:${session}|${lane.id}@${lane.version}#${lane.meta?.policyStamp ?? '-'}|${hashCacheKey({
     checkpoint: req.checkpoint,
     toolName: f.toolName || req.toolName || '',
     mcpServer: f.mcpServer ?? req.mcpServer ?? null,
@@ -87,11 +94,19 @@ function cacheKey(lane: Lane, req: ActionRequest, f: ActionFeatures, tainted: bo
   })}`;
 }
 function effectiveMode(lane: Lane): LaneMode { return govConfig.enforcementEnabled ? lane.mode : 'observe'; }
+/** Mode a matched rule actually runs in, given its policy override and the lane mode. */
+function ruleMode(m: RuleMatch, mode: LaneMode): LaneMode {
+  if (!govConfig.enforcementEnabled) return 'observe';
+  if (m.condition.modeOverride === 'observe') return 'observe';
+  if (m.condition.modeOverride === 'enforce' && mode === 'observe') return 'enforce';
+  return mode;
+}
 function systemGuardContext(): SystemGuardContext {
   return {
     port: Number(process.env.PORT ?? 4317),
     dbPath: DB_PATH,
     lanesDir: govConfig.lanesDir || path.join(process.cwd(), 'lanes'),
+    policiesDir: policyDir(),
     envFile: resolveEnvFile(),
   };
 }
@@ -182,52 +197,85 @@ async function chooseCandidate(lane: Lane, agent: RegisteredAgent, intent: Await
 
   const tainted = !!intent.taint;
   const ev = laneEngine.evaluate(lane, req, f, { tainted, workspace: req.agent.cwd });
-  if (ev.deny) return { verdict: 'deny', stage: 'rules_deny', reason: ev.deny.description, ruleIds: [ev.deny.ruleId], cacheable: true };
+  const observed = { ruleIds: [] as string[], reasons: [] as string[] };
+  const alerts = ev.alert.length ? { ruleIds: ev.alert.map(m => m.ruleId), descriptions: ev.alert.map(m => m.description) } : undefined;
+  const decorate = (c: Candidate): Candidate => ({ ...c, alerts, observed: observed.ruleIds.length ? observed : undefined });
+  if (ev.deny) {
+    const m = ruleMode(ev.deny, mode);
+    if (m === 'observe' && mode !== 'observe') {
+      // Observe-only policy deny inside an enforcing lane: record it, but let the lane decide.
+      observed.ruleIds.push(ev.deny.ruleId); observed.reasons.push(ev.deny.description);
+    } else {
+      return decorate({ verdict: 'deny', stage: 'rules_deny', reason: ev.deny.description, ruleIds: [ev.deny.ruleId], cacheable: true, modeOverride: m !== mode ? m : undefined });
+    }
+  }
 
-  const triggers = judgeTriggers(lane, ev, f, tainted);
-  if (ev.approve.length) {
-    const reason = ev.approve.map(m => m.description).join('; ');
-    if (mode === 'observe') return { verdict: 'escalate', stage: 'human', reason, ruleIds: ev.approve.map(m => m.ruleId) };
-    return human(lane, agent, req, f, reason, start, opts, mode).then(h => ({ ...h, ruleIds: ev.approve.map(m => m.ruleId) }));
+  // Observe-only policy rules never permit or gate an action: drop their allow/judge matches.
+  const observeOnly = (m: RuleMatch) => m.condition.modeOverride === 'observe';
+  const judgeMatches = ev.judge.filter(m => !observeOnly(m));
+  const allowMatches = ev.allow.filter(m => !observeOnly(m));
+  // An enforce-mode policy judge rule makes the judge's verdict binding even in an observe lane.
+  const judgeMode: LaneMode = mode === 'observe' && judgeMatches.some(m => ruleMode(m, mode) === 'enforce') ? 'enforce' : mode;
+  const triggers = judgeTriggers(lane, { ...ev, judge: judgeMatches }, f, tainted);
+  const approves = ev.approve.filter(a => {
+    if (mode !== 'observe' && ruleMode(a, mode) === 'observe') { observed.ruleIds.push(a.ruleId); observed.reasons.push(`${a.description} (approval)`); return false; }
+    return true;
+  });
+  if (approves.length) {
+    const reason = approves.map(m => m.description).join('; ');
+    const approvalMode: LaneMode = mode === 'observe' && approves.some(a => ruleMode(a, mode) !== 'observe') ? 'enforce' : mode;
+    const override = approvalMode !== mode ? approvalMode : undefined;
+    if (approvalMode === 'observe') return decorate({ verdict: 'escalate', stage: 'human', reason, ruleIds: approves.map(m => m.ruleId) });
+    return human(lane, agent, req, f, reason, start, opts, approvalMode).then(h => decorate({ ...h, ruleIds: approves.map(m => m.ruleId), modeOverride: override }));
   }
 
   const globalKey = cacheKey(lane, req, f, tainted, 'global');
   const sessionKey = cacheKey(lane, req, f, tainted, 'session');
   const cached = getCache(globalKey) ?? getCache(sessionKey);
-  if (cached) return cached;
+  if (cached) return decorate(cached);
 
   // Without a configured judge, only elevated actions (medium+ risk or a tainted session) fall to the
   // fail mode; routine judge-gated work (e.g. `npm test`) continues to the allow rules / lane default.
   const elevated = tainted || riskRank(f.riskLevel) >= riskRank('medium');
   if (triggers.length && (judge.available || elevated)) {
     const judged = await runJudge(lane, intent, req, f, tainted, triggers, start, opts);
-    if (judged.verdict === 'escalate' && mode !== 'observe') {
-      return human(lane, agent, req, f, judged.reason, start, opts, mode).then(h => ({ ...h, judge: judged.judge, ruleIds: judged.ruleIds }));
+    const override = judgeMode !== mode ? judgeMode : undefined;
+    if (judged.verdict === 'escalate' && judgeMode !== 'observe') {
+      return human(lane, agent, req, f, judged.reason, start, opts, judgeMode).then(h => decorate({ ...h, judge: judged.judge, ruleIds: judged.ruleIds, modeOverride: override }));
     }
-    addCache(sessionKey, judged);
-    return judged;
+    const out: Candidate = { ...judged, modeOverride: override };
+    addCache(sessionKey, out);
+    return decorate(out);
   }
-  if (ev.allow.length) {
-    const c: Candidate = { verdict: 'allow', stage: 'rules_allow', reason: ev.allow[0].description, ruleIds: ev.allow.map(m => m.ruleId), cacheable: true };
-    addCache(globalKey, c); return c;
+  if (allowMatches.length) {
+    const c: Candidate = { verdict: 'allow', stage: 'rules_allow', reason: allowMatches[0].description, ruleIds: allowMatches.map(m => m.ruleId), cacheable: true };
+    addCache(globalKey, c); return decorate(c);
   }
   const verdict: Verdict = lane.defaultVerdict === 'deny' ? 'deny' : lane.defaultVerdict === 'judge' ? failVerdict(lane, f.category, f.riskLevel) : 'allow';
   const noJudge = triggers.length > 0 && !judge.available;
   const c: Candidate = { verdict, stage: lane.defaultVerdict === 'judge' ? 'fail_mode' : 'default', reason: lane.defaultVerdict === 'deny' ? 'Lane default deny' : noJudge ? 'Lane default allow (judge not configured; no elevated risk)' : 'Lane default allow', ruleIds: noJudge ? triggers : [], cacheable: true };
-  addCache(globalKey, c); return c;
+  addCache(globalKey, c); return decorate(c);
 }
 async function append(req: ActionRequest, agent: RegisteredAgent, lane: Lane, f: ActionFeatures, candidate: Candidate, mode: LaneMode, tainted: boolean, start: number): Promise<Decision> {
-  const applied = applyMode(candidate, mode);
+  const decisionMode = candidate.modeOverride ?? mode;
+  const applied = applyMode(candidate, decisionMode);
+  const observed = candidate.observed;
+  const wouldDeny = applied.wouldDeny || (!!observed?.ruleIds.length && applied.effectiveVerdict !== 'deny');
+  const reason = observed?.reasons.length && applied.effectiveVerdict !== 'deny'
+    ? `${candidate.reason || ''} [observe-only policy would deny: ${observed.reasons.join('; ')}]`
+    : candidate.reason || '';
+  const ruleIds = [...new Set([...candidate.ruleIds, ...(observed?.ruleIds ?? []), ...(candidate.alerts?.ruleIds ?? [])])];
   const decision: Decision = {
     id: crypto.randomUUID(), requestId: req.requestId, sessionId: req.sessionId, agentId: agent.id,
-    laneId: lane.id, laneVersion: lane.version, mode, checkpoint: req.checkpoint, toolName: req.toolName,
-    category: f.category, verdict: applied.verdict, effectiveVerdict: applied.effectiveVerdict, wouldDeny: applied.wouldDeny,
-    stage: candidate.stage, reason: redactString(candidate.reason || ''), ruleIds: candidate.ruleIds,
+    laneId: lane.id, laneVersion: lane.version, mode: decisionMode, checkpoint: req.checkpoint, toolName: req.toolName,
+    category: f.category, verdict: applied.verdict, effectiveVerdict: applied.effectiveVerdict, wouldDeny,
+    stage: candidate.stage, reason: redactString(reason), ruleIds,
     riskLevel: f.riskLevel, judge: candidate.judge, approvalId: candidate.approvalId, approver: candidate.approver,
     tainted, latencyMs: Date.now() - start, createdAt: nowIso(),
   };
   const saved = await govStore().appendDecision(decision);
   govBus.emit('decision', saved);
+  if (candidate.alerts?.ruleIds.length) govBus.emit('policy.alert', { decision: saved, ruleIds: candidate.alerts.ruleIds, descriptions: candidate.alerts.descriptions });
   return saved;
 }
 

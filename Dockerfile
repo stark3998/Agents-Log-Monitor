@@ -55,6 +55,7 @@ ENV NODE_ENV=production \
     PORT=4317 \
     AGENT_MONITOR_DB=/app/data/agent-monitor.db \
     GOVERNANCE_LANES_DIR=/app/lanes \
+    GOVERNANCE_POLICIES_DIR=/app/policies \
     GOVERNANCE_TRUST_LOOPBACK=false
 
 WORKDIR /app
@@ -70,6 +71,7 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /src/dist ./dist
 COPY --from=build /src/public ./public
 COPY lanes ./lanes
+COPY policies ./policies
 
 USER node
 EXPOSE 4317

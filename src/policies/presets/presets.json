@@ -1,0 +1,885 @@
+{
+    "filesystemLocations": [
+        {
+            "id": "agent_workdir",
+            "group": "Work Areas",
+            "label": "Agent Workdir",
+            "pattern": "$WORKDIR/**",
+            "description": "The directory where the AI agent is running - typically the project or repository root"
+        },
+        {
+            "id": "user_documents",
+            "group": "Work Areas",
+            "label": "User Documents",
+            "pattern": "~/Documents/**",
+            "description": "All files and subdirectories inside the user's Documents folder"
+        },
+        {
+            "id": "user_downloads",
+            "group": "Work Areas",
+            "label": "User Downloads",
+            "pattern": "~/Downloads/**",
+            "description": "All files and subdirectories inside the user's Downloads folder"
+        },
+        {
+            "id": "user_desktop",
+            "group": "Work Areas",
+            "label": "User Desktop",
+            "pattern": "~/Desktop/**",
+            "description": "All files and subdirectories on the user's Desktop"
+        },
+        {
+            "id": "ssh_keys",
+            "group": "Sensitive",
+            "label": "SSH Keys & Config",
+            "pattern": "~/.ssh/**",
+            "description": "SSH private keys, public keys, and config files used for remote server access"
+        },
+        {
+            "id": "cloud_creds",
+            "group": "Sensitive",
+            "label": "Cloud Credentials (AWS)",
+            "pattern": "~/.aws/**",
+            "description": "AWS access keys, secret keys, and session tokens used for cloud infrastructure access"
+        },
+        {
+            "id": "kube_config",
+            "group": "Sensitive",
+            "label": "Kubernetes Config",
+            "pattern": "~/.kube/**",
+            "description": "Kubernetes cluster credentials and configuration - grants access to container orchestration"
+        },
+        {
+            "id": "env_files",
+            "group": "Sensitive",
+            "label": "Environment Files",
+            "pattern": "**/.env*, **/*.env",
+            "description": "Files like .env, .env.local, .env.production, prod.env - often contain API keys, database passwords, and secrets"
+        },
+        {
+            "id": "gnupg_keys",
+            "group": "Sensitive",
+            "label": "GPG Keys",
+            "pattern": "~/.gnupg/**",
+            "description": "GPG encryption keys used for signing commits, encrypting files, and verifying identities"
+        },
+        {
+            "id": "system_config",
+            "group": "System",
+            "label": "System Configuration",
+            "pattern": "/etc/**",
+            "description": "OS-level configuration files (hosts, DNS, PAM, cron, etc.) - modifying these can affect system behavior"
+        },
+        {
+            "id": "system_binaries",
+            "group": "System",
+            "label": "System Binaries",
+            "pattern": "/usr/bin/**",
+            "description": "Core OS executables - writing here could replace system commands with malicious ones"
+        },
+        {
+            "id": "system_libs",
+            "group": "System",
+            "label": "System Libraries",
+            "pattern": "/usr/lib/**",
+            "description": "Shared libraries used by the OS and applications - tampering can break or backdoor software"
+        },
+        {
+            "id": "temp_files",
+            "group": "System",
+            "label": "Temporary Files",
+            "pattern": "/tmp/**",
+            "description": "Temporary file storage - agents may use /tmp to stage payloads or exfiltrate data"
+        },
+        {
+            "id": "user_home",
+            "group": "Broad",
+            "label": "Entire Home Directory",
+            "pattern": "~/**",
+            "description": "Everything inside the user's home directory including documents, configs, and secrets"
+        },
+        {
+            "id": "all_paths",
+            "group": "Broad",
+            "label": "All Paths (catch-all)",
+            "pattern": "*",
+            "description": "Matches every filesystem path - use as a default rule at the end of a policy"
+        }
+    ],
+    "network": [
+        {
+            "id": "ai_services",
+            "group": "AI & LLM Services",
+            "label": "AI/LLM APIs",
+            "pattern": "*.openai.com, *.anthropic.com, *.googleapis.com/ai, *.cohere.ai",
+            "description": "API endpoints for OpenAI, Anthropic, Google AI, and Cohere - where agents send prompts and receive completions"
+        },
+        {
+            "id": "ai_model_hubs",
+            "group": "AI & LLM Services",
+            "label": "Model Hubs",
+            "pattern": "*.huggingface.co, *.replicate.com, *.together.ai",
+            "description": "Platforms for downloading and running open-source ML models - agents may pull model weights or run inference"
+        },
+        {
+            "id": "code_repos",
+            "group": "Dev & Code",
+            "label": "Code Repositories",
+            "pattern": "*.github.com, *.gitlab.com, *.bitbucket.org",
+            "description": "Source code hosting - agents may clone repos, push code changes, or access private repositories"
+        },
+        {
+            "id": "package_registries",
+            "group": "Dev & Code",
+            "label": "Package Registries",
+            "pattern": "*.npmjs.org, *.pypi.org, *.rubygems.org, *.crates.io",
+            "description": "Package managers where agents install dependencies - risk of pulling malicious or vulnerable packages"
+        },
+        {
+            "id": "container_registries",
+            "group": "Dev & Code",
+            "label": "Container Registries",
+            "pattern": "*.docker.io, *.gcr.io, *.ecr.aws",
+            "description": "Container image registries - agents may pull or push Docker images that run arbitrary code"
+        },
+        {
+            "id": "ci_cd",
+            "group": "Dev & Code",
+            "label": "CI/CD Platforms",
+            "pattern": "*.circleci.com, *.travis-ci.com, *.actions.githubusercontent.com",
+            "description": "Continuous integration and deployment services - agents interacting here could trigger builds or deployments"
+        },
+        {
+            "id": "cloud_aws",
+            "group": "Cloud & Infra",
+            "label": "AWS Services",
+            "pattern": "*.amazonaws.com, *.aws.amazon.com",
+            "description": "Amazon Web Services APIs (S3, EC2, Lambda, IAM, etc.) - broad cloud infrastructure access"
+        },
+        {
+            "id": "cloud_gcp",
+            "group": "Cloud & Infra",
+            "label": "GCP Services",
+            "pattern": "*.googleapis.com, *.cloud.google.com",
+            "description": "Google Cloud Platform APIs - compute, storage, AI, and other cloud services"
+        },
+        {
+            "id": "cloud_azure",
+            "group": "Cloud & Infra",
+            "label": "Azure Services",
+            "pattern": "*.azure.com, *.microsoft.com",
+            "description": "Microsoft Azure cloud services - VMs, databases, identity, and other infrastructure"
+        },
+        {
+            "id": "monitoring",
+            "group": "Cloud & Infra",
+            "label": "Monitoring & Observability",
+            "pattern": "*.datadoghq.com, *.splunk.com, *.grafana.com, *.pagerduty.com",
+            "description": "Monitoring tools - agents may read sensitive metrics/logs or trigger incident alerts"
+        },
+        {
+            "id": "cloud_metadata",
+            "group": "Cloud & Infra",
+            "label": "Cloud Instance Metadata (IMDS)",
+            "pattern": "169.254.169.254, metadata.google.internal, metadata.goog, fd00:ec2::254",
+            "description": "Instance metadata endpoints on AWS, GCP, and Azure - a request here hands back the machine's cloud credentials"
+        },
+        {
+            "id": "collab_slack",
+            "group": "SaaS & Collaboration",
+            "label": "Slack",
+            "pattern": "*.slack.com",
+            "description": "Slack messaging platform - agents may read messages, send messages, or access shared files"
+        },
+        {
+            "id": "collab_atlassian",
+            "group": "SaaS & Collaboration",
+            "label": "Atlassian (Jira/Confluence)",
+            "pattern": "*.atlassian.net, *.atlassian.com",
+            "description": "Jira and Confluence - agents may access project tickets, wiki pages, and internal documentation"
+        },
+        {
+            "id": "collab_notion",
+            "group": "SaaS & Collaboration",
+            "label": "Notion",
+            "pattern": "*.notion.so, *.notion.com",
+            "description": "Notion workspace - agents may read/write pages, databases, and shared team knowledge"
+        },
+        {
+            "id": "collab_google",
+            "group": "SaaS & Collaboration",
+            "label": "Google Workspace",
+            "pattern": "*.google.com, *.googleapis.com",
+            "description": "Google Workspace (Drive, Docs, Sheets, Gmail) - broad access to documents and email"
+        },
+        {
+            "id": "collab_linear",
+            "group": "SaaS & Collaboration",
+            "label": "Linear",
+            "pattern": "*.linear.app",
+            "description": "Linear project management - agents may read/create issues and access project data"
+        },
+        {
+            "id": "data_exfil",
+            "group": "Data Exfiltration Risk",
+            "label": "File Sharing",
+            "pattern": "*.dropbox.com, *.wetransfer.com, *.mega.nz, *.sendgb.com, *.transfer.sh, *.file.io, *.anonfiles.com, *.gofile.io, *.ufile.io, *.bashupload.com, *.send.now, *.tmpfiles.org",
+            "description": "File sharing and one-shot upload services - high risk for data exfiltration if an agent uploads sensitive files"
+        },
+        {
+            "id": "paste_sites",
+            "group": "Data Exfiltration Risk",
+            "label": "Paste & Snippet Sites",
+            "pattern": "*.pastebin.com, *.hastebin.com, *.ghostbin.com, *.gist.github.com, *.paste.ee, *.termbin.com, *.ix.io, *.0x0.st",
+            "description": "Public paste/snippet sites - agents could leak source code, secrets, or internal data"
+        },
+        {
+            "id": "tunnel_endpoints",
+            "group": "Data Exfiltration Risk",
+            "label": "Tunnels & Request Inspectors",
+            "pattern": "*.ngrok.io, *.ngrok-free.app, *.ngrok.app, *.trycloudflare.com, *.loca.lt, *.serveo.net, *.webhook.site, *.requestbin.com, *.pipedream.net",
+            "description": "Tunnel and request-inspection endpoints - an agent can post data to one from anywhere, or expose a local service to the internet"
+        },
+        {
+            "id": "personal_email",
+            "group": "Data Exfiltration Risk",
+            "label": "Personal Email",
+            "pattern": "*.gmail.com, *.outlook.com, *.yahoo.com, *.protonmail.com",
+            "description": "Personal email providers - risk of agents sending sensitive data to external addresses"
+        },
+        {
+            "id": "social_media",
+            "group": "Data Exfiltration Risk",
+            "label": "Social Media",
+            "pattern": "*.twitter.com, *.reddit.com, *.facebook.com, *.linkedin.com",
+            "description": "Social media platforms - agents could post internal information publicly"
+        },
+        {
+            "id": "all_external",
+            "group": "Broad",
+            "label": "All External Traffic",
+            "pattern": "*",
+            "description": "Matches all network destinations - use as a catch-all default rule at the end of a policy"
+        },
+        {
+            "id": "internal_only",
+            "group": "Broad",
+            "label": "Internal Network",
+            "pattern": "*.internal, *.local, 10.*, 172.16.*, 192.168.*",
+            "description": "Private/internal network ranges only - restricts agents to on-premise or VPN resources"
+        }
+    ],
+    "credentials": [
+        {
+            "id": "ssh_keys",
+            "group": "SSH",
+            "label": "SSH Private Keys",
+            "pattern": "~/.ssh/id_*, %USERPROFILE%\\.ssh\\id_*",
+            "description": "Private key files (id_rsa, id_ed25519, etc.) used to authenticate to remote servers"
+        },
+        {
+            "id": "ssh_dir",
+            "group": "SSH",
+            "label": "SSH Directory",
+            "pattern": "~/.ssh/**, %USERPROFILE%\\.ssh\\**",
+            "description": "Entire SSH directory including keys, config, and known hosts"
+        },
+        {
+            "id": "ssh_known_hosts",
+            "group": "SSH",
+            "label": "SSH Known Hosts",
+            "pattern": "~/.ssh/known_hosts, %USERPROFILE%\\.ssh\\known_hosts",
+            "description": "List of previously connected servers - modifying could enable man-in-the-middle attacks"
+        },
+        {
+            "id": "aws_creds",
+            "group": "Cloud Credentials",
+            "label": "AWS Credentials",
+            "pattern": "~/.aws/credentials, %USERPROFILE%\\.aws\\credentials",
+            "description": "AWS access key ID and secret access key - grants programmatic access to AWS services"
+        },
+        {
+            "id": "aws_config",
+            "group": "Cloud Credentials",
+            "label": "AWS Config",
+            "pattern": "~/.aws/config, %USERPROFILE%\\.aws\\config",
+            "description": "AWS CLI configuration including default region, output format, and SSO settings"
+        },
+        {
+            "id": "gcp_creds",
+            "group": "Cloud Credentials",
+            "label": "GCP Service Accounts",
+            "pattern": "~/.config/gcloud/**, %APPDATA%\\gcloud\\**, %LOCALAPPDATA%\\Google\\Cloud SDK\\**",
+            "description": "Google Cloud service account keys and CLI credentials"
+        },
+        {
+            "id": "azure_creds",
+            "group": "Cloud Credentials",
+            "label": "Azure Credentials",
+            "pattern": "~/.azure/**, %USERPROFILE%\\.azure\\**",
+            "description": "Azure CLI tokens and subscription credentials"
+        },
+        {
+            "id": "kube_config",
+            "group": "Infrastructure",
+            "label": "Kubernetes Config",
+            "pattern": "~/.kube/config, %USERPROFILE%\\.kube\\config, **/kubeconfig",
+            "description": "Cluster connection details and auth tokens - grants access to manage Kubernetes resources"
+        },
+        {
+            "id": "docker_config",
+            "group": "Infrastructure",
+            "label": "Docker Config",
+            "pattern": "~/.docker/config.json, %USERPROFILE%\\.docker\\config.json",
+            "description": "Docker registry auth tokens - allows pulling/pushing container images"
+        },
+        {
+            "id": "terraform_creds",
+            "group": "Infrastructure",
+            "label": "Terraform Credentials",
+            "pattern": "~/.terraform.d/**, %APPDATA%\\terraform.d\\**",
+            "description": "Terraform Cloud/Enterprise API tokens - grants access to infrastructure-as-code state"
+        },
+        {
+            "id": "env_files",
+            "group": "Secrets & Tokens",
+            "label": "Environment Files (.env)",
+            "pattern": "**/.env*, **/*.env",
+            "description": "Dotenv files containing API keys, database URLs, and other application secrets"
+        },
+        {
+            "id": "gnupg_keys",
+            "group": "Secrets & Tokens",
+            "label": "GPG Keys",
+            "pattern": "~/.gnupg/**, %APPDATA%\\gnupg\\**",
+            "description": "GPG encryption and signing keys - used for commit signing and file encryption"
+        },
+        {
+            "id": "keychain",
+            "group": "Secrets & Tokens",
+            "label": "Keychain / Secret Store",
+            "pattern": "*keychain*, ~/Library/Keychains/**, **/*.keychain, **/*.keychain-db, %APPDATA%\\Microsoft\\Credentials\\**, %APPDATA%\\Microsoft\\Protect\\**, %LOCALAPPDATA%\\Microsoft\\Vault\\**",
+            "description": "OS-level credential stores (macOS Keychain, Windows Credential Manager and DPAPI vaults) containing saved passwords and tokens"
+        },
+        {
+            "id": "npm_tokens",
+            "group": "Secrets & Tokens",
+            "label": "NPM Tokens",
+            "pattern": "~/.npmrc, %USERPROFILE%\\.npmrc",
+            "description": "NPM registry authentication tokens - can be used to publish packages under your identity"
+        },
+        {
+            "id": "git_creds",
+            "group": "Secrets & Tokens",
+            "label": "Git Credentials",
+            "pattern": "~/.git-credentials, %USERPROFILE%\\.git-credentials",
+            "description": "Stored Git usernames and passwords/tokens for repository access"
+        },
+        {
+            "id": "proc_environ",
+            "group": "Secrets & Tokens",
+            "label": "Process Environment (/proc)",
+            "pattern": "/proc/*/environ, /proc/self/environ",
+            "description": "Linux process environment blocks - reading these lifts tokens straight out of a running process"
+        },
+        {
+            "id": "db_client_creds",
+            "group": "Secrets & Tokens",
+            "label": "Database & Storage Client Credentials",
+            "pattern": "~/.pgpass, ~/.my.cnf, ~/.boto, ~/.s3cfg, %USERPROFILE%\\.pgpass, %USERPROFILE%\\.my.cnf, %USERPROFILE%\\.boto, %USERPROFILE%\\.s3cfg",
+            "description": "Postgres, MySQL, Google Cloud Storage, and S3 client config files - each stores its password or access key in plaintext"
+        },
+        {
+            "id": "password_vaults",
+            "group": "Secrets & Tokens",
+            "label": "Password Manager Vaults",
+            "pattern": "**/*.kdbx",
+            "description": "KeePass-family vault files - one file holding every password the user saved"
+        },
+        {
+            "id": "all_creds",
+            "group": "Broad",
+            "label": "All Credential Locations",
+            "pattern": "~/.ssh/**, ~/.aws/**, ~/.config/gcloud/**, ~/.azure/**, ~/.kube/**, ~/.gnupg/**, **/.env*, **/*.env, ~/.npmrc, ~/.git-credentials, ~/.docker/config.json, ~/.terraform.d/**, %APPDATA%\\terraform.d\\**, *keychain*, /proc/*/environ, /proc/self/environ, %USERPROFILE%\\.ssh\\**, %USERPROFILE%\\.aws\\**, %USERPROFILE%\\.azure\\**, %USERPROFILE%\\.kube\\**, %USERPROFILE%\\.docker\\config.json, %USERPROFILE%\\.git-credentials, %USERPROFILE%\\.npmrc, %APPDATA%\\gcloud\\**, %APPDATA%\\gnupg\\**, %APPDATA%\\Microsoft\\Credentials\\**, %APPDATA%\\Microsoft\\Protect\\**, %LOCALAPPDATA%\\Microsoft\\Vault\\**, %LOCALAPPDATA%\\Google\\Cloud SDK\\**, ~/.pgpass, ~/.my.cnf, ~/.boto, ~/.s3cfg, %USERPROFILE%\\.pgpass, %USERPROFILE%\\.my.cnf, %USERPROFILE%\\.boto, %USERPROFILE%\\.s3cfg, **/*.kdbx",
+            "description": "All known credential file locations combined - broadest credential access rule"
+        }
+    ],
+    "capabilities": [
+        {
+            "id": "shell_exec",
+            "group": "Execution",
+            "label": "Shell / Terminal - Any command",
+            "pattern": "shell_exec",
+            "description": "Matches every shell command (bash, zsh, sh, cmd.exe, PowerShell). Most powerful capability - allows arbitrary system access. Use sparingly."
+        },
+        {
+            "id": "code_exec",
+            "group": "Execution",
+            "label": "Code interpreters (python, node, PowerShell, …)",
+            "pattern": "code_exec",
+            "description": "Running code via interpreters (Python, Node.js, PowerShell Invoke-Expression, cmd /c, .ps1 scripts) - can execute arbitrary logic. Narrower than process_spawn (which also covers non-interpreter spawn vectors like mshta, rundll32, Start-Process).",
+            "subsetOf": "process_spawn"
+        },
+        {
+            "id": "process_spawn_eval",
+            "group": "Execution",
+            "label": "Process - Meta-execution only (eval, bash -c)",
+            "pattern": "process_spawn_eval",
+            "description": "Matches `eval`, `exec`, and `bash/sh/zsh -c \"...\"` - meta-execution patterns that hide the real command from static rules. Highest-risk subset of process spawning.",
+            "subsetOf": "process_spawn"
+        },
+        {
+            "id": "process_spawn",
+            "group": "Execution",
+            "label": "Process spawning - Any (nohup, exec, Start-Process, mshta, rundll32, …)",
+            "pattern": "process_spawn",
+            "description": "Launching new OS processes (nohup, exec, Start-Process, rundll32, mshta, wmic, cmd /c, powershell -Command). Broader than the meta-execution variant."
+        },
+        {
+            "id": "sudo_exec",
+            "group": "Execution",
+            "label": "Privileged execution (sudo, runas, gsudo)",
+            "pattern": "sudo_exec",
+            "description": "Running commands with elevated privileges - sudo on Unix, runas / gsudo / psexec / Start-Process -Verb RunAs / -RunAs flag on Windows. Full system control if allowed."
+        },
+        {
+            "id": "file_read",
+            "group": "File System",
+            "label": "File read (any path)",
+            "pattern": "file_read",
+            "description": "Reading file contents from disk - agents may access source code, configs, or sensitive data."
+        },
+        {
+            "id": "file_write",
+            "group": "File System",
+            "label": "File write / create (any path)",
+            "pattern": "file_write",
+            "description": "Creating or modifying files - agents can change code, configs, or install scripts."
+        },
+        {
+            "id": "file_delete",
+            "group": "File System",
+            "label": "File delete (rm, del, Remove-Item)",
+            "pattern": "file_delete",
+            "description": "Matches `rm`, `del`, `erase`, `rd`, `rmdir`, `Remove-Item`, `Clear-RecycleBin`. Irreversible data loss if misused."
+        },
+        {
+            "id": "chmod_unsafe",
+            "group": "File System",
+            "label": "Permissions - Unsafe only (setuid, 777, 666)",
+            "pattern": "chmod_unsafe",
+            "description": "Matches dangerous chmod patterns (setuid/setgid bits, world-writable). Narrower than the all-chmod preset.",
+            "subsetOf": "file_permissions"
+        },
+        {
+            "id": "file_permissions",
+            "group": "File System",
+            "label": "Permissions - Any (chmod, chown, icacls, attrib, …)",
+            "pattern": "file_permissions",
+            "description": "Matches chmod/chown/chgrp on Unix and icacls/attrib/takeown/Set-Acl/Get-Acl on Windows. Broader than the unsafe-only variant."
+        },
+        {
+            "id": "file_copy",
+            "group": "File System",
+            "label": "File Copy / Move (cp, mv, copy, robocopy, Copy-Item)",
+            "pattern": "file_copy",
+            "description": "Copying, moving, or linking files (cp, mv, ln, copy, xcopy, robocopy, move, mklink, Copy-Item, Move-Item, Rename-Item) - data-staging / exfiltration vector symmetric across Unix and Windows."
+        },
+        {
+            "id": "curl_to_shell",
+            "group": "Network",
+            "label": "Drive-by execution (`curl … | bash`)",
+            "pattern": "curl_to_shell",
+            "description": "Matches `curl ... | bash` and `wget ... | sh` patterns specifically - the classic drive-by RCE vector.",
+            "subsetOf": "web_access"
+        },
+        {
+            "id": "web_outbound_send",
+            "group": "Network",
+            "label": "Web - Outbound write only (POST/PUT/PATCH/DELETE, --data, --upload-file)",
+            "pattern": "web_outbound_send",
+            "description": "Matches HTTP requests that send data out - POST/PUT/PATCH/DELETE methods, `--data`, `-F`, `--upload-file`, `-T`. The exfil/mutation pattern; GET-style fetches stay under the broad web_access preset.",
+            "subsetOf": "web_access"
+        },
+        {
+            "id": "web_access",
+            "group": "Network",
+            "label": "Web / HTTP - Any (curl, wget, Invoke-WebRequest, certutil, bitsadmin)",
+            "pattern": "web_access",
+            "description": "Matches every HTTP/HTTPS client invocation - curl, wget, http, fetch, Invoke-WebRequest, iwr, irm, Start-BitsTransfer, certutil -urlcache, bitsadmin /transfer. Broader than the outbound-write and curl-to-shell variants."
+        },
+        {
+            "id": "dns_lookup",
+            "group": "Network",
+            "label": "DNS lookups (dig, nslookup, Resolve-DnsName)",
+            "pattern": "dns_lookup",
+            "description": "Resolving domain names - dig, nslookup, host, resolvectl, Resolve-DnsName. Can be used for DNS tunneling or reconnaissance."
+        },
+        {
+            "id": "socket_listen",
+            "group": "Network",
+            "label": "Socket - Listen / bind only (nc -l, socat …LISTEN:)",
+            "pattern": "socket_listen",
+            "description": "Matches socket-listening commands that open this endpoint to inbound connections. Subset of socket_open; outbound `nc <host>`, `nmap`, and `telnet` stay under the broad preset.",
+            "subsetOf": "socket_open"
+        },
+        {
+            "id": "socket_open",
+            "group": "Network",
+            "label": "Raw socket / port access - Any (nc, socat, nmap, Test-NetConnection, …)",
+            "pattern": "socket_open",
+            "description": "Opening raw TCP/UDP sockets (nc, netcat, socat, nmap, telnet, Test-NetConnection, [System.Net.Sockets]). Broader than the listen/bind variant."
+        },
+        {
+            "id": "git_outbound_ops",
+            "group": "Dev Tools",
+            "label": "Git - Outbound only (push)",
+            "pattern": "git_outbound_ops",
+            "description": "Matches `git push` and `git send-pack` - operations that send data to the remote and affect other team members.",
+            "subsetOf": "git_remote_ops"
+        },
+        {
+            "id": "git_inbound_ops",
+            "group": "Dev Tools",
+            "label": "Git - Inbound only (pull, fetch, clone)",
+            "pattern": "git_inbound_ops",
+            "description": "Matches `git pull`, `git fetch`, `git clone` - operations that pull data into this endpoint.",
+            "subsetOf": "git_remote_ops"
+        },
+        {
+            "id": "git_remote_ops",
+            "group": "Dev Tools",
+            "label": "Git - Any remote op (push + pull + fetch + clone)",
+            "pattern": "git_remote_ops",
+            "description": "Matches any git operation that touches a remote. Coarser than the outbound/inbound split.",
+            "subsetOf": "git_ops"
+        },
+        {
+            "id": "git_destructive_ops",
+            "group": "Dev Tools",
+            "label": "Git - Destructive only (force push, hard reset, filter-branch)",
+            "pattern": "git_destructive_ops",
+            "description": "Matches force pushes, hard resets, and history-rewriting commands.",
+            "subsetOf": "git_ops"
+        },
+        {
+            "id": "git_ops",
+            "group": "Dev Tools",
+            "label": "Git - Any command",
+            "pattern": "git_ops",
+            "description": "Matches every git subcommand including read-only ones. Broader than the variants above."
+        },
+        {
+            "id": "docker_outbound_ops",
+            "group": "Dev Tools",
+            "label": "Docker - Outbound only (push)",
+            "pattern": "docker_outbound_ops",
+            "description": "Matches `docker push` / `podman push` - pushes an image to the registry.",
+            "subsetOf": "docker_remote_ops"
+        },
+        {
+            "id": "docker_inbound_ops",
+            "group": "Dev Tools",
+            "label": "Docker - Inbound only (pull)",
+            "pattern": "docker_inbound_ops",
+            "description": "Matches `docker pull` / `podman pull` - pulls an image to this endpoint.",
+            "subsetOf": "docker_remote_ops"
+        },
+        {
+            "id": "docker_remote_ops",
+            "group": "Dev Tools",
+            "label": "Docker - Any registry op (push + pull)",
+            "pattern": "docker_remote_ops",
+            "description": "Matches any docker/podman push or pull. Coarser than the outbound/inbound split.",
+            "subsetOf": "docker_ops"
+        },
+        {
+            "id": "docker_destructive_ops",
+            "group": "Dev Tools",
+            "label": "Docker - Destructive only (rm, prune, volume rm)",
+            "pattern": "docker_destructive_ops",
+            "description": "Matches container/image/volume removal. Read-only ops like `docker ps` and `docker logs` pass through.",
+            "subsetOf": "docker_ops"
+        },
+        {
+            "id": "docker_ops",
+            "group": "Dev Tools",
+            "label": "Docker - Any command",
+            "pattern": "docker_ops",
+            "description": "Matches every docker/podman subcommand. Broader than the variants above."
+        },
+        {
+            "id": "kubectl_destructive_ops",
+            "group": "Dev Tools",
+            "label": "Kubernetes - Destructive only (delete, drain, scale-to-zero)",
+            "pattern": "kubectl_destructive_ops",
+            "description": "Matches destructive cluster ops only. Subset of the broader mutate preset.",
+            "subsetOf": "kubectl_mutate_ops"
+        },
+        {
+            "id": "kubectl_mutate_ops",
+            "group": "Dev Tools",
+            "label": "Kubernetes - Any mutation (apply, create, patch, delete, …)",
+            "pattern": "kubectl_mutate_ops",
+            "description": "Matches any kubectl command that mutates the cluster (apply/create/patch/replace/edit/scale/delete/drain/cordon). Read-only ops pass through.",
+            "subsetOf": "kubectl_ops"
+        },
+        {
+            "id": "kubectl_secret_ops",
+            "group": "Dev Tools",
+            "label": "Kubernetes - Secret reads only",
+            "pattern": "kubectl_secret_ops",
+            "description": "Matches `kubectl get secret`, `externalsecret`, and `secretstore` - for cluster secret exfiltration.",
+            "subsetOf": "kubectl_ops"
+        },
+        {
+            "id": "kubectl_ops",
+            "group": "Dev Tools",
+            "label": "Kubernetes - Any command",
+            "pattern": "kubectl_ops",
+            "description": "Matches every kubectl/helm/k9s/oc invocation. Broader than the variants above."
+        },
+        {
+            "id": "aws_secret_ops",
+            "group": "Dev Tools",
+            "label": "AWS CLI - Secret / credential reads",
+            "pattern": "aws_secret_ops",
+            "description": "Matches `aws secretsmanager get-secret-value`, `list-secrets`, and `ssm get-parameter --with-decryption` - for AWS secret exfiltration.",
+            "subsetOf": "aws_ops"
+        },
+        {
+            "id": "aws_ops",
+            "group": "Dev Tools",
+            "label": "AWS CLI - Any command",
+            "pattern": "aws_ops",
+            "description": "Matches every `aws` CLI invocation. Broader than the secret-reads variant above."
+        },
+        {
+            "id": "vault_secret_ops",
+            "group": "Dev Tools",
+            "label": "HashiCorp Vault - Secret reads",
+            "pattern": "vault_secret_ops",
+            "description": "Matches `vault read` and `vault kv get` - pulls secret material out of a Vault server. Listing and status commands pass through."
+        },
+        {
+            "id": "onepassword_secret_ops",
+            "group": "Dev Tools",
+            "label": "1Password CLI - Secret reads",
+            "pattern": "onepassword_secret_ops",
+            "description": "Matches `op item get` and `op read` - pulls an item or a secret reference out of a 1Password vault."
+        },
+        {
+            "id": "gcloud_secret_ops",
+            "group": "Dev Tools",
+            "label": "Google Cloud - Secret Manager reads",
+            "pattern": "gcloud_secret_ops",
+            "description": "Matches `gcloud secrets versions access` - reads a secret's value out of Google Secret Manager. `gcloud secrets list` passes through."
+        },
+        {
+            "id": "akeyless_secret_ops",
+            "group": "Dev Tools",
+            "label": "Akeyless - Secret reads",
+            "pattern": "akeyless_secret_ops",
+            "description": "Matches `akeyless get-secret-value` and `akeyless get-secret` - pulls secret material out of Akeyless."
+        },
+        {
+            "id": "terraform_destructive_ops",
+            "group": "Dev Tools",
+            "label": "Terraform - Destructive only (destroy, apply -destroy)",
+            "pattern": "terraform_destructive_ops",
+            "description": "Matches `terraform destroy` / `tofu destroy` and `apply -destroy` - tears down managed infrastructure. `plan` and read-only commands pass through."
+        },
+        {
+            "id": "package_publish_ops",
+            "group": "Dev Tools",
+            "label": "Package - Publish only (npm/yarn/pnpm/cargo/gem/twine)",
+            "pattern": "package_publish_ops",
+            "description": "Matches `npm publish`, `yarn publish`, `cargo publish`, `gem publish`, `twine upload`, etc. - package publication to a registry, which affects everyone who installs your package.",
+            "subsetOf": "package_ops"
+        },
+        {
+            "id": "package_global_install",
+            "group": "Dev Tools",
+            "label": "Package install - Global only (`npm i -g`, `pip --user`, `brew install`)",
+            "pattern": "package_global_install",
+            "description": "Matches global / system-wide installs only. Project-local installs pass through.",
+            "subsetOf": "package_install"
+        },
+        {
+            "id": "package_install",
+            "group": "Dev Tools",
+            "label": "Package install - Any (npm, pip, winget, choco, scoop, …)",
+            "pattern": "package_install",
+            "description": "Matches every package-manager install invocation - Unix (npm/pip/gem/cargo/brew/apt/yarn/pnpm/bun) plus Windows (winget, choco, scoop, msiexec /i, Install-Module, Install-Package). Broader than global-only.",
+            "subsetOf": "package_ops"
+        },
+        {
+            "id": "package_ops",
+            "group": "Dev Tools",
+            "label": "Package manager - Any command",
+            "pattern": "package_ops",
+            "description": "Matches any npm/yarn/pnpm/bun/pip/gem/cargo/brew/apt/twine invocation. Broader than the install + publish variants."
+        },
+        {
+            "id": "clipboard_read",
+            "group": "System",
+            "label": "Clipboard - Read only (pbpaste, xclip -o, wl-paste)",
+            "pattern": "clipboard_read",
+            "description": "Matches commands that READ the clipboard - the actual exfil pattern that captures passwords/tokens an operator just copied. Subset of clipboard_access; pbcopy/xclip -i/wl-copy stay under the broad preset.",
+            "subsetOf": "clipboard_access"
+        },
+        {
+            "id": "clipboard_access",
+            "group": "System",
+            "label": "Clipboard - Any (pbcopy, xclip, clip, Get-Clipboard, …)",
+            "pattern": "clipboard_access",
+            "description": "Reading or writing the system clipboard - pbcopy, pbpaste, xclip, xsel, wl-copy, wl-paste, clip.exe, Get-Clipboard, Set-Clipboard. Broader than the read-only variant."
+        },
+        {
+            "id": "screenshot",
+            "group": "System",
+            "label": "Screenshot / screen capture (screencapture, scrot, SnippingTool)",
+            "pattern": "screenshot",
+            "description": "Taking screenshots of the display - screencapture (macOS), scrot/gnome-screenshot/flameshot (Linux), SnippingTool.exe and [System.Drawing.Graphics]::CopyFromScreen (Windows). Can capture any visible sensitive information."
+        },
+        {
+            "id": "env_vars",
+            "group": "System",
+            "label": "Environment variable access (env, $env:, setx, …)",
+            "pattern": "env_vars",
+            "description": "Reading environment variables - env/printenv/export/source on Unix, setx/$env:/[Environment]::/reg query Environment/ls env: on Windows. Often contain API keys, tokens, and connection strings."
+        },
+        {
+            "id": "env_dump",
+            "group": "System",
+            "label": "Environment variable dump (env, printenv, Get-ChildItem env:)",
+            "pattern": "env_dump",
+            "description": "Dumping the complete process environment, which commonly exposes API keys, tokens, and connection strings.",
+            "subsetOf": "env_vars"
+        },
+        {
+            "id": "browser_automation",
+            "group": "System",
+            "label": "Browser automation (puppeteer, playwright, …)",
+            "pattern": "browser_automation",
+            "description": "Controlling a web browser programmatically - can interact with authenticated web sessions."
+        },
+        {
+            "id": "registry_modify",
+            "group": "System",
+            "label": "Modify Windows Registry",
+            "pattern": "registry_modify",
+            "description": "Modifying Windows registry via reg.exe add/delete, regini, Set-ItemProperty, or New-ItemProperty - persistence and config tampering vector."
+        },
+        {
+            "id": "service_control",
+            "group": "System",
+            "label": "Windows Service Control",
+            "pattern": "service_control",
+            "description": "Creating, starting, stopping, or deleting Windows services (sc.exe, net start/stop, New-Service, Start-Service, Stop-Service) - persistence and privilege-escalation vector."
+        },
+        {
+            "id": "scheduled_tasks",
+            "group": "System",
+            "label": "Windows Scheduled Tasks",
+            "pattern": "scheduled_tasks",
+            "description": "Creating or modifying Windows scheduled tasks (schtasks.exe with create/change/delete/run/end verbs, at.exe, Register-ScheduledTask) - persistence vector similar to Unix cron. Read-only `schtasks /query` does not match."
+        },
+        {
+            "id": "firewall_modify",
+            "group": "System",
+            "label": "Modify Windows Firewall",
+            "pattern": "firewall_modify",
+            "description": "Adding, removing, or disabling Windows firewall rules (netsh advfirewall, New-NetFirewallRule, Set-NetFirewallRule) - defense-evasion and lateral-movement enabler."
+        },
+        {
+            "id": "all_capabilities",
+            "group": "Broad",
+            "label": "All capabilities (catch-all)",
+            "pattern": "*",
+            "description": "Matches every capability - use as a catch-all default rule at the end of a policy."
+        }
+    ],
+    "mcp": [
+        {
+            "id": "mcp_company_data",
+            "group": "SaaS & Collaboration",
+            "label": "Company data & collaboration",
+            "pattern": "*jira*, *notion*, linear, *slack*, teams, microsoft-teams, m365, microsoft-365, outlook, gmail, google-drive, google-calendar, *google-workspace*, onedrive, dropbox, box, asana, *monday*, trello, airtable, coda, miro, *figma*, canva, zendesk, freshdesk, intercom, servicenow, hubspot, workday, greenhouse, zoom, stripe, granola, krisp, pitch, wispr-flow, gitbook, calendar, mail, pylon, guru, lucid, productboard, ashby, canny, dart, anaplan, netsuite, carta, gong, zoominfo, postman, hex, *clickup*, *glean*, *base44*, *sharepoint*, *salesforce*, *confluence*, *atlassian*",
+            "description": "MCP servers that reach the company's own documents, tickets, messages and records. Writes here publish content to somewhere colleagues and often customers can read.",
+            "identities": "*.atlassian.com, *.atlassian.net, *.slack.com, *.notion.so, *.notion.com, *.linear.app, *.figma.com, *.canva.com, *.asana.com, *.monday.com, *.clickup.com, *.trello.com, *.airtable.com, *.miro.com, *.zendesk.com, *.freshdesk.com, *.intercom.com, *.intercom.io, *.servicenow.com, *.salesforce.com, *.hubspot.com, *.workday.com, *.greenhouse.io, *.zoom.us, *.stripe.com, *.docusign.com, *.egnyte.com, *.dropbox.com, *.box.com, *.googleapis.com, *.google.com, *.gitbook.com, *.getguru.com, *.pendo.io, *.klaviyo.com, *.similarweb.com, *.supermetrics.com, *.fireflies.ai, *.postman.com, *.definite.app, microsoft365.mcp.claude.com, *.microsoft.com, *.office.com, *.sharepoint.com, npm:*slack*, npm:*gmail*, npm:*teams*, npm:*stripe*, npm:*notion*, npm:*linear*, npm:*atlassian*, npm:*jira*, npm:*confluence*, npm:*figma*, npm:*monday*, npm:*hubspot*, npm:*salesforce*, pypi:*slack*, pypi:*atlassian*, pypi:*jira*"
+        },
+        {
+            "id": "mcp_code_hosting",
+            "group": "Dev & Code",
+            "label": "Source code hosting",
+            "pattern": "*azure-devops*, ado, gitea, gerrit, git, gitnexus, sonarqube, *octocode*, *github*, *gitlab*, *bitbucket*",
+            "description": "MCP servers that read and write source repositories, branches, pull requests and CI config. Writes can land code and pipeline changes.",
+            "identities": "*.github.com, *.githubcopilot.com, *.gitlab.com, *.bitbucket.org, *.dev.azure.com, npm:*github*, npm:*gitlab*, npm:*bitbucket*, pypi:*github*, pypi:*gitlab*, docker:*github*"
+        },
+        {
+            "id": "mcp_cloud_infra",
+            "group": "Cloud & Infra",
+            "label": "Cloud & infrastructure",
+            "pattern": "aws, amazon, azure, gcp, google-cloud, kube, k8s, helm, pulumi, ansible, docker, container, vercel, netlify, heroku, *cloudflare*, digitalocean, fly, aws-s3, firebase, convex, render, port, kong, descope, *okta*, aws-api*, *launchdarkly*, *kubernetes*, *terraform*",
+            "description": "MCP servers that provision, mutate or destroy running infrastructure. The highest-consequence writes on the list: a mutation here changes production.",
+            "identities": "*.amazonaws.com, *.aws.amazon.com, *.azure.com, *.microsoftonline.com, *.googlecloud.com, *.cloudflare.com, *.vercel.com, *.netlify.com, *.heroku.com, *.digitalocean.com, *.railway.app, *.render.com, *.okta.com, npm:*kubernetes*, npm:*terraform*, npm:*docker*, npm:*aws*, pypi:*kubernetes*, pypi:*aws*, docker:*kubernetes*"
+        },
+        {
+            "id": "mcp_databases",
+            "group": "Infrastructure",
+            "label": "Databases & warehouses",
+            "pattern": "mysql, mariadb, dynamodb, elasticsearch, *opensearch*, *redshift*, sqlite, mssql, *oracle*, sap, supabase, athena, querybook, *looker*, memgraph, falkordb, warehouse-traces, quix, *trino*, *denodo*, *tableau*, *powerbi*, *openmetadata*, *dbhub*, *postgres*, *clickhouse*, *documentdb*, *snowflake*, *mongo*, *redis*, *bigquery*, *databricks*",
+            "description": "MCP servers with direct query access to stored data. Reads can pull large volumes of records; writes can drop or corrupt them.",
+            "identities": "*.snowflakecomputing.com, *.databricks.com, *.mongodb.com, *.mongodb.net, *.supabase.com, *.supabase.co, *.hex.tech, *.trino.io, *.clickhouse.com, *.bigquery.googleapis.com, npm:*postgres*, npm:*mongo*, npm:*mysql*, npm:*redis*, npm:*sqlite*, npm:*clickhouse*, npm:*snowflake*, npm:*bigquery*, pypi:*postgres*, pypi:*mongo*, pypi:*trino*, pypi:*clickhouse*, docker:*postgres*, docker:*mongo*"
+        },
+        {
+            "id": "mcp_observability",
+            "group": "Dev Tools",
+            "label": "Observability & monitoring",
+            "pattern": "prometheus, splunk, *newrelic*, new-relic, honeycomb, loki, tempo, kibana, falcon, signoz, runreveal, incident-io, mixpanel, *cloudwatch*, *cloudtrail*, *airflow-log*, *coralogix*, *dynatrace*, *sumo-logic*, *logz.io*, *datadog*, *grafana*, *sentry*, *posthog*, *pagerduty*, *amplitude*",
+            "description": "MCP servers that read telemetry, logs, traces and alerts. Overwhelmingly read-shaped, so these are the cheapest reads to allow outright.",
+            "identities": "*.datadoghq.com, *.datadoghq.eu, *.grafana.com, *.grafana.net, *.sentry.io, *.pagerduty.com, *.newrelic.com, *.splunk.com, *.honeycomb.io, *.posthog.com, *.coralogix.com, *.dynatrace.com, *.amplitude.com, npm:*grafana*, npm:*datadog*, npm:*sentry*, pypi:*grafana*, pypi:*datadog*"
+        },
+        {
+            "id": "mcp_browser",
+            "group": "Execution",
+            "label": "Browser automation",
+            "pattern": "chromium, selenium, *marionette*, chromedevtools, chrome-cu, *chrome-devtools*, *playwright*, *puppeteer*, *browser*",
+            "description": "MCP servers that drive a real browser. Every action is an Execute, and a driven browser inherits the user's logged-in sessions.",
+            "identities": "npm:*playwright*, npm:*puppeteer*, npm:*chrome*, npm:*browser*, npm:*selenium*, pypi:*playwright*, pypi:*selenium*, docker:*playwright*, *.browserbase.com"
+        },
+        {
+            "id": "mcp_web_fetch",
+            "group": "Network",
+            "label": "Web fetch & search",
+            "pattern": "fetch, brave, google-maps, tavily, exa, perplexity, websearch, web-search, ahrefs, mobbin, parallel-search, parallel-task, *n8n-docs*, *aws-knowledge*, *aws-doc*, *awsknowledge*, *context7*, *similarweb*, *brave-search*, *web-fetch*",
+            "description": "MCP servers that pull arbitrary content in from the open web. The classic prompt-injection entry point: content fetched here is untrusted input.",
+            "identities": "*.brave.com, *.tavily.com, *.exa.ai, *.perplexity.ai, *.context7.com, *.ahrefs.com, npm:*fetch*, npm:*context7*, npm:*brave*, npm:*tavily*, pypi:*fetch*, dxt:*context7*"
+        },
+        {
+            "id": "mcp_local_workspace",
+            "group": "File System",
+            "label": "Local workspace & agent scratch",
+            "pattern": "time, sequential-thinking, everything, *memory*, *filesystem*, *shell*, *ollama*, *obsidian*",
+            "description": "MCP servers that stay on the developer's own machine — local files, agent memory, scratch utilities. No third-party data leaves through these, so they carry the mildest verdicts.",
+            "identities": "npm:*filesystem*, npm:*memory*, npm:*obsidian*, npm:*sequential-thinking*, npm:*everything*, npm:*ollama*, pypi:*filesystem*, pypi:*memory*, pypi:*ollama*, go:*filesystem*"
+        },
+        {
+            "id": "mcp_workflow",
+            "group": "Execution",
+            "label": "Workflow automation",
+            "pattern": "n8n, zapier, temporal, marketo, astro-airflow, *n8n-eng*, *n8n-product*, *quix-scheduler*, *workato*",
+            "description": "MCP servers that trigger work in other systems — pipelines, scheduled jobs, integration flows. Every call is an Execute whose effect lands somewhere the agent cannot see.",
+            "identities": "*.n8n.io, *.workato.com, *.zapier.com, *.temporal.io, *.astronomer.io, npm:*n8n*, pypi:*airflow*"
+        },
+        {
+            "id": "mcp_security",
+            "group": "Sensitive",
+            "label": "Security & compliance tooling",
+            "pattern": "wiz, upwind, armorcode, zeropath, burp, hackerone, pillar, tines, blinkops, forensics, *harpy*, *appsec*, *bugbounty*",
+            "description": "MCP servers that read an organization's own security posture — findings, alerts, cases, scan results. Read-shaped but highly privileged: this is the map of where the gaps are.",
+            "identities": "*.wiz.io, *.crowdstrike.com, *.upwind.io, *.armorcode.com, *.hackerone.com, *.tines.com, *.pillar.security"
+        }
+    ]
+}

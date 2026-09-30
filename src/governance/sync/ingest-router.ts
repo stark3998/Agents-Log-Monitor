@@ -3,10 +3,13 @@ import { hasRole, requireRole } from '../auth';
 import { govStore } from '../store';
 import type { Decision } from '../types';
 import { CosmosTelemetrySink, type MirroredEvent } from '../store/cosmos-telemetry';
+import { ingestPostureReport, PostureOwnershipError } from '../posture';
+import { parsePostureReport } from '../posture/schema';
+import type { PostureReport } from '../../posture/types';
 
 interface SyncIngestBody {
   deviceId?: string;
-  items?: ({ kind: 'decision'; decision: Decision } | { kind: 'event'; event: MirroredEvent })[];
+  items?: ({ kind: 'decision'; decision: Decision } | { kind: 'event'; event: MirroredEvent } | { kind: 'posture'; report: PostureReport })[];
   decisions?: Decision[];
   events?: MirroredEvent[];
 }
@@ -63,9 +66,14 @@ router.post('/sync/ingest', async (req, res, next) => {
     const deviceId = safeId(principal.id);
     const decisions: Decision[] = [...(body.decisions ?? [])];
     const events: MirroredEvent[] = [...(body.events ?? [])];
+    const reports: PostureReport[] = [];
     for (const item of body.items ?? []) {
       if (item.kind === 'decision') decisions.push(item.decision);
       else if (item.kind === 'event') events.push(item.event);
+      else if (item.kind === 'posture') {
+        const { report } = parsePostureReport(item.report);
+        if (report) reports.push(report);
+      }
     }
 
     const appended: Decision[] = [];
@@ -73,7 +81,12 @@ router.post('/sync/ingest', async (req, res, next) => {
       appended.push(await govStore().appendDecision(reportedDecision(d, deviceId, new Date().toISOString())));
     }
     if (events.length) await (await telemetrySink()).writeEvents(events.map(e => ({ ...e, originDeviceId: deviceId } as MirroredEvent & { originDeviceId: string })));
-    res.json({ ok: true, decisions: appended.length, events: events.length });
+    let posture = 0;
+    for (const r of reports.slice(0, 5)) {
+      try { await ingestPostureReport(r, 'device', deviceId); posture++; }
+      catch (err) { if (!(err instanceof PostureOwnershipError)) throw err; console.warn(`[sync] ${err.message}`); }
+    }
+    res.json({ ok: true, decisions: appended.length, events: events.length, posture });
   } catch (err) { next(err); }
 });
 

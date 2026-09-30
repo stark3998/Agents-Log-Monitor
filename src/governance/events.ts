@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import type { Approval, Decision, Incident, LaneRecord, RegisteredAgent, SessionIntent } from './types';
+import type { Approval, Decision, Incident, LaneRecord, PolicyRecord, RegisteredAgent, SessionIntent } from './types';
 
 /**
  * In-process governance event bus. Producers (PDP, approvals, registry, lanes) emit; consumers
@@ -11,6 +11,9 @@ export interface GovEvents {
   'approval.resolved': (a: Approval) => void;
   'agent.updated': (a: RegisteredAgent) => void;
   'lane.updated': (l: LaneRecord) => void;
+  'policy.updated': (p: PolicyRecord) => void;
+  'policy.alert': (a: { decision: Decision; ruleIds: string[]; descriptions: string[] }) => void;
+  'posture.updated': (p: { endpointId: string }) => void;
   'session.updated': (s: SessionIntent) => void;
   'incident.created': (i: Incident) => void;
   'incident.updated': (i: Incident) => void;

@@ -75,6 +75,8 @@ export interface LaneCondition {
   detector?: string[];
   tainted?: boolean;
   description?: string;
+  filesystem?: string[]; network?: string[]; credential?: string[]; capability?: string[]; mcpCategory?: string[]; classifier?: string[]; operation?: ('read' | 'write' | 'delete' | 'execute')[];
+  policyId?: string; policyVersion?: number; modeOverride?: 'observe' | 'enforce';
 }
 
 export type FailMode = 'open' | 'closed';
@@ -93,7 +95,8 @@ export interface Lane {
   purpose: string;
   dos: string[];
   never: string[];
-  rules: { deny?: LaneCondition[]; allow?: LaneCondition[]; judge?: LaneCondition[]; approve?: LaneCondition[] };
+  policies?: string[];
+  rules: { deny?: LaneCondition[]; allow?: LaneCondition[]; judge?: LaneCondition[]; approve?: LaneCondition[]; alert?: LaneCondition[] };
   defaultVerdict?: 'allow' | 'deny' | 'judge';
   mode: LaneMode;
   failMode: { default: FailMode } & Partial<Record<ToolCategory, FailMode>>;
@@ -106,7 +109,7 @@ export interface Lane {
   alerts?: Partial<Record<GovSeverity, AlertChannel[]>>;
   sync?: { dataPolicy: DataPolicy };
   guardian?: { authority: GuardianAuthority };
-  meta?: { owner?: string; createdBy?: string; source?: 'file' | 'ui' | 'ai-draft'; notes?: string };
+  meta?: { owner?: string; createdBy?: string; source?: 'file' | 'ui' | 'ai-draft'; notes?: string; appliedPolicies?: { id: string; version: number; global: boolean }[] };
 }
 
 export type LaneStatus = 'active' | 'draft' | 'proposed' | 'archived';
@@ -251,6 +254,8 @@ export interface SimulationResult {
   wouldDeny: number;
   wouldJudge: number;
   wouldApprove: number;
+  wouldAlert?: number;
+  ruleHits?: Record<string, number>;
   samples: SimulationSample[];
 }
 

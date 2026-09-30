@@ -10,6 +10,7 @@ import type { Incident, Lane, LaneRecord, LaneStatus, Principal, RegisteredAgent
 import { parseLaneYaml, validateLane, validateLaneYaml } from '../lanes/loader';
 import { simulateLane } from '../lanes/simulate';
 import { intentTracker } from '../intent';
+import { activePolicies } from '../policies';
 
 const router = Router();
 
@@ -176,7 +177,7 @@ router.post('/lanes/validate', requireRole('Viewer'), (req, res) => {
 router.post('/lanes/simulate', requireRole('Viewer'), async (req, res) => {
   const lane = req.body?.yaml ? parseLaneYaml(req.body.yaml) : validateLane(req.body?.lane).lane;
   if (!lane) { res.status(400).json({ error: 'invalid lane' }); return; }
-  res.json(await simulateLane(lane, req.body));
+  res.json(await simulateLane(lane, { ...req.body, policies: await activePolicies() }));
 });
 router.post('/lanes', async (req, res) => {
   const principal = req.principal;

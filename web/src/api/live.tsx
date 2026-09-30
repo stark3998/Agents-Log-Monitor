@@ -38,6 +38,8 @@ type GovMessage =
   | { type: 'gov.approval'; approval: Approval }
   | { type: 'gov.agent'; agent: RegisteredAgent }
   | { type: 'gov.lane'; lane: { id: string; version: number; status: string } }
+  | { type: 'gov.policy'; policy?: { id: string; version: number; status: string } }
+  | { type: 'gov.posture'; findingId?: string; endpointId?: string }
   | { type: 'gov.incident'; incident: Incident };
 
 /** Append a live decision to the per-session cache that drives conversation timeline badges. */
@@ -59,6 +61,13 @@ export function handleGovMessage(qc: QueryClient, msg: GovMessage): string[] {
     case 'gov.lane':
       if (msg.lane?.id) void qc.invalidateQueries({ queryKey: ['gov', 'lane', msg.lane.id] });
       return ['lanes', 'lane-versions'];
+    case 'gov.policy':
+      if (msg.policy?.id) void qc.invalidateQueries({ queryKey: ['gov', 'policies', 'detail', msg.policy.id] });
+      return ['policies'];
+    case 'gov.posture':
+      if (msg.findingId) void qc.invalidateQueries({ queryKey: ['gov', 'posture', 'finding', msg.findingId] });
+      if (msg.endpointId) void qc.invalidateQueries({ queryKey: ['gov', 'posture', 'endpoint', msg.endpointId] });
+      return ['posture'];
     case 'gov.incident':
       if (msg.incident?.id) qc.setQueryData(govKeys.incident(msg.incident.id), msg.incident);
       return ['incidents', 'overview'];

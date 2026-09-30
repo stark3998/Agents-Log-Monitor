@@ -10,7 +10,7 @@ import { govStore } from '../store';
 import { telemetry } from '../telemetry';
 import type {
   Approval, Decision, Incident, IncidentRecommendation, IncidentState, Lane, LaneRecord, LaneStatus,
-  Principal, RegisteredAgent, Role, Severity, SessionIntent, Verdict,
+  Policy, PolicyRecord, Principal, RegisteredAgent, Role, Severity, SessionIntent, Verdict,
 } from '../types';
 
 type JsonObject = Record<string, unknown>;
@@ -381,6 +381,105 @@ export function createMcpServer(principal: Principal): McpServer {
     });
   });
 
+  server.registerTool('list_policies', {
+    title: 'List policies',
+    description: 'Requires Viewer. Lists latest policy records (reusable rule sets; global ones apply to every lane in scope). Filter by status[]. Output: {items: PolicyRecord[], cursor?}.',
+    inputSchema: {
+      status: z.array(z.enum(laneStatuses)).optional(),
+      limit: z.number().int().positive().max(MAX_LIMIT).optional(), cursor: z.string().optional(),
+    },
+    annotations: readOnly,
+  }, async input => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const items = await govStore().listPolicies(input.status as LaneStatus[] | undefined);
+    return jsonResult(pageArray(items, input.limit, input.cursor));
+  });
+
+  server.registerTool('get_policy', {
+    title: 'Get policy',
+    description: 'Requires Viewer. Returns the active PolicyRecord by id, or a specific version.',
+    inputSchema: { policyId: z.string().min(1), version: z.number().int().positive().optional() },
+    annotations: readOnly,
+  }, async ({ policyId, version }) => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const rec = await govStore().getPolicy(policyId, version);
+    return rec ? jsonResult(rec) : toolError(`policy not found: ${policyId}`);
+  });
+
+  server.registerTool('simulate_policy', {
+    title: 'Simulate policy',
+    description: 'Requires Viewer. Validates a YAML or JSON policy and replays it over recorded tool calls. Output: {ok, errors, evaluated, wouldDeny, wouldApprove, wouldJudge, wouldAlert, ruleHits, samples}.',
+    inputSchema: {
+      yaml: z.string().optional(), policy: z.unknown().optional(), from: z.string().optional(), to: z.string().optional(),
+      agentId: z.string().optional(), limit: z.number().int().positive().max(10000).optional(),
+    },
+    annotations: readOnly,
+  }, async input => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const { validatePolicy, validatePolicyYaml } = await import('../policies/schema');
+    const v = input.yaml ? validatePolicyYaml(input.yaml) : validatePolicy(input.policy);
+    if (!v.ok || !v.policy) return jsonResult({ ok: false, errors: v.errors });
+    const { simulatePolicy } = await import('../lanes/simulate');
+    return jsonResult({ ok: true, errors: [], ...(await simulatePolicy(v.policy, { from: input.from, to: input.to, agentId: input.agentId, limit: input.limit })) });
+  });
+
+  server.registerTool('list_classifiers', {
+    title: 'List data classifiers',
+    description: 'Requires Viewer. Lists sensitive-data classifiers with category, sensitivity, active and enforceable flags. Only enforceable classifiers can be used in policy rules.',
+    inputSchema: { category: z.string().optional(), activeOnly: z.boolean().optional() },
+    annotations: readOnly,
+  }, async input => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const { listClassifiers } = await import('../../analytics/classifiers/config');
+    const items = listClassifiers()
+      .filter(c => !input.category || c.category.toLowerCase() === input.category.toLowerCase())
+      .filter(c => !input.activeOnly || c.isActive)
+      .map(({ pattern: _p, contextPattern: _c, ...rest }) => rest);
+    return jsonResult({ items });
+  });
+
+  server.registerTool('list_policy_presets', {
+    title: 'List policy presets',
+    description: 'Requires Viewer. Returns the preset catalog used in policy rules: filesystem, network, credential, capability and mcpCategory building blocks.',
+    inputSchema: { kind: z.enum(['filesystem', 'network', 'credential', 'capability', 'mcpCategory']).optional() },
+    annotations: readOnly,
+  }, async input => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const { listPresets } = await import('../../policies/presets');
+    return jsonResult(input.kind ? { items: listPresets(input.kind) } : listPresets());
+  });
+
+  server.registerTool('list_posture_findings', {
+    title: 'List endpoint posture findings',
+    description: 'Requires Viewer. Lists endpoint posture findings (risky AI-agent configuration on developer machines). Filters: state[], severity[], endpointId, checkId. Evidence contains key names and masked samples only.',
+    inputSchema: {
+      state: z.array(z.enum(['open', 'resolved', 'suppressed'])).optional(),
+      severity: z.array(z.enum(severities)).optional(),
+      endpointId: z.string().optional(), checkId: z.string().optional(),
+      limit: z.number().int().positive().max(MAX_LIMIT).optional(), cursor: z.string().optional(),
+    },
+    annotations: readOnly,
+  }, async input => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const items = await govStore().listPostureFindings({ state: input.state, severity: input.severity as Severity[] | undefined, endpointId: input.endpointId, checkId: input.checkId, limit: 5000 });
+    return jsonResult(pageArray(items, input.limit, input.cursor));
+  });
+
+  server.registerTool('get_endpoint_inventory', {
+    title: 'Get endpoint AI inventory',
+    description: 'Requires Viewer. Returns the latest scan of an endpoint: installed AI agents and versions, configured MCP servers, AI extensions, scheduled agent tasks and finding counts. Omit endpointId to list endpoints.',
+    inputSchema: { endpointId: z.string().optional() },
+    annotations: readOnly,
+  }, async ({ endpointId }) => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    if (!endpointId) {
+      const items = await govStore().listPostureEndpoints();
+      return jsonResult({ items: items.map(({ inventory: _inv, ...e }) => e) });
+    }
+    const ep = await govStore().getPostureEndpoint(endpointId);
+    return ep ? jsonResult(ep) : toolError(`endpoint not found: ${endpointId}`);
+  });
+
   server.registerTool('verify_audit_chain', {
     title: 'Verify audit chain',
     description: 'Requires Viewer. Verifies the hash-chained decision log from fromSeq for up to limit decisions.',
@@ -516,6 +615,30 @@ export function createMcpServer(principal: Principal): McpServer {
     const rec: LaneRecord = { lane, status: 'proposed', yaml: validated.yaml, updatedAt: new Date().toISOString(), updatedBy: principal.id };
     const saved = await govStore().saveLane(rec);
     govBus.emit('lane.updated', saved);
+    return jsonResult(saved);
+  });
+
+  server.registerTool('propose_policy', {
+    title: 'Propose policy',
+    description: 'Governed write available to Viewer principals. Validates a YAML or JSON policy and saves it as status proposed only; it never activates a policy.',
+    inputSchema: { yaml: z.string().optional(), policy: z.unknown().optional(), rationale: z.string().optional() },
+  }, async input => {
+    const auth = requireRoleResult(principal, 'Viewer'); if (auth) return auth;
+    const rateLimit = rateLimitLaneProposal(principal); if (rateLimit) return rateLimit;
+    if (!input.yaml && input.policy == null) return toolError('provide yaml or policy');
+    const { validatePolicy, validatePolicyYaml } = await import('../policies/schema');
+    const v = input.yaml ? validatePolicyYaml(input.yaml) : validatePolicy(input.policy);
+    if (!v.ok || !v.policy) return toolError('policy validation failed', { errors: v.errors });
+    const gate = await governedWrite(principal, 'propose_policy', input); if (gate) return gate;
+    const versions = await govStore().listPolicyVersions(v.policy.id);
+    const policy: Policy = {
+      ...v.policy,
+      version: versions.length ? Math.max(...versions.map(r => r.policy.version)) + 1 : v.policy.version,
+      meta: { ...v.policy.meta, createdBy: principal.id, source: 'ai-draft', notes: input.rationale ?? v.policy.meta?.notes },
+    };
+    const rec: PolicyRecord = { policy, status: 'proposed', yaml: input.yaml ?? YAML.stringify(policy), updatedAt: new Date().toISOString(), updatedBy: principal.id };
+    const saved = await govStore().savePolicy(rec);
+    govBus.emit('policy.updated', saved);
     return jsonResult(saved);
   });
 

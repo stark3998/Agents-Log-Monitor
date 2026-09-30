@@ -13,6 +13,9 @@ const ApprovalsPage = lazy(() => import('./pages/approvals/ApprovalsPage').then(
 const AgentsPage = lazy(() => import('./pages/agents/AgentsPage').then(m => ({ default: m.AgentsPage })));
 const LanesPage = lazy(() => import('./pages/lanes/LanesPage').then(m => ({ default: m.LanesPage })));
 const LaneEditorPage = lazy(() => import('./pages/lanes/LaneEditorPage').then(m => ({ default: m.LaneEditorPage })));
+const PoliciesPage = lazy(() => import('./pages/policies/PoliciesPage').then(m => ({ default: m.PoliciesPage })));
+const PolicyEditorPage = lazy(() => import('./pages/policies/PolicyEditorPage').then(m => ({ default: m.PolicyEditorPage })));
+const PosturePage = lazy(() => import('./pages/posture/PosturePage').then(m => ({ default: m.PosturePage })));
 const IncidentsPage = lazy(() => import('./pages/incidents/IncidentsPage').then(m => ({ default: m.IncidentsPage })));
 const IncidentDetailPage = lazy(() => import('./pages/incidents/IncidentDetailPage').then(m => ({ default: m.IncidentDetailPage })));
 const AskPage = lazy(() => import('./pages/ask/AskPage').then(m => ({ default: m.AskPage })));
@@ -47,6 +50,9 @@ export default function App() {
         <Route path="/agents" element={lazyPage(<AgentsPage />)} />
         <Route path="/lanes" element={lazyPage(<LanesPage />)} />
         <Route path="/lanes/:id" element={lazyPage(<LaneEditorPage />)} />
+        <Route path="/policies" element={lazyPage(<PoliciesPage />)} />
+        <Route path="/policies/:id" element={lazyPage(<PolicyEditorPage />)} />
+        <Route path="/posture" element={lazyPage(<PosturePage />)} />
         <Route path="/incidents" element={lazyPage(<IncidentsPage />)} />
         <Route path="/incidents/:id" element={lazyPage(<IncidentDetailPage />)} />
         <Route path="/ask" element={lazyPage(<AskPage />)} />

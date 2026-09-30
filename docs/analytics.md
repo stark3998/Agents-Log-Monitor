@@ -23,7 +23,7 @@ Hostnames are taken from URLs and `git@host:` remotes in a tool call's **input**
 
 ## Sensitive-data detectors — `detectors.ts`
 
-Detectors scan prompts, tool inputs and tool outputs, up to 256 KB per event. For trimmed sources they scan the full original text (`scanText`).
+Detectors scan prompts, tool inputs and tool outputs, up to 256 KB per event. For trimmed sources they scan the full original text (`scanText`). They are driven by the unified [data classifier catalog](classifiers.md): 96 classifiers across Secrets, PII, Financial, Healthcare, Legal, Government, Infrastructure, Code, Prompt Injection and Education. Each can be switched on or off, and custom regex classifiers can be added. Only **active** classifiers produce findings. The original detector keys below are kept unchanged:
 
 | Key | Label | Class |
 |---|---|---|
@@ -49,8 +49,8 @@ Payloads are analyzed first and redacted afterwards, so detection always sees th
 
 | `REDACT_PAYLOADS` | Masks |
 |---|---|
-| `secrets` (default) | secret-class values (all detectors above except `email`). Private key blocks become `-----BEGIN … PRIVATE KEY----- [REDACTED] -----END … PRIVATE KEY-----` |
-| `all` | secrets **and** email addresses (`j***@contoso.com`) |
+| `secrets` (default) | values of active Secrets-category classifiers. Private key blocks become `-----BEGIN … PRIVATE KEY----- [REDACTED] -----END … PRIVATE KEY-----` |
+| `all` | secrets **and** active PII-type classifiers: email addresses (`j***@contoso.com`), SSNs, card numbers, IBANs… |
 | `off` | nothing; payloads are stored as received |
 
 Key/value pairs such as `{ "API_KEY": "abc123…" }` are masked even when they don't appear as `API_KEY=…` text. Redaction masks values whether or not their detector is disabled in the rules file.

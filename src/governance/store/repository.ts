@@ -1,6 +1,6 @@
 import type {
-  Approval, ApprovalState, Decision, Incident, IncidentState, LaneRecord, LaneStatus,
-  RegisteredAgent, SessionIntent, Verdict,
+  Approval, ApprovalState, Decision, Incident, IncidentState, LaneRecord, LaneStatus, PolicyRecord,
+  PostureEndpointRecord, PostureFindingRecord, PostureFindingState, RegisteredAgent, SessionIntent, Severity, Verdict,
 } from '../types';
 
 /**
@@ -29,6 +29,17 @@ export interface DecisionQuery {
 
 export interface Page<T> { items: T[]; cursor?: string }
 
+export interface SettingDoc<T = unknown> { key: string; value: T; updatedAt: string; updatedBy?: string }
+
+export interface PostureFindingQuery {
+  state?: PostureFindingState[];
+  endpointId?: string;
+  checkId?: string;
+  severity?: Severity[];
+  level?: 'endpoint' | 'fleet';
+  limit?: number;
+}
+
 export interface ApprovalQuery { state?: ApprovalState[]; sessionId?: string; agentId?: string; limit?: number }
 export interface IncidentQuery { state?: IncidentState[]; agentId?: string; since?: string; limit?: number }
 
@@ -50,6 +61,25 @@ export interface GovernanceStore {
   listLaneVersions(id: string): Promise<LaneRecord[]>;
   saveLane(rec: LaneRecord): Promise<LaneRecord>;
   setLaneStatus(id: string, version: number, status: LaneStatus, by?: string): Promise<void>;
+
+  // Policies (versioned exactly like lanes)
+  listPolicies(status?: LaneStatus[]): Promise<PolicyRecord[]>;
+  getPolicy(id: string, version?: number): Promise<PolicyRecord | undefined>;
+  listPolicyVersions(id: string): Promise<PolicyRecord[]>;
+  savePolicy(rec: PolicyRecord): Promise<PolicyRecord>;
+  setPolicyStatus(id: string, version: number, status: LaneStatus, by?: string): Promise<void>;
+
+  // Settings documents (classifier config, posture check config…). Last write wins.
+  getSetting<T = unknown>(key: string): Promise<SettingDoc<T> | undefined>;
+  putSetting<T = unknown>(key: string, value: T, by?: string): Promise<SettingDoc<T>>;
+
+  // Endpoint posture
+  upsertPostureEndpoint(e: PostureEndpointRecord): Promise<PostureEndpointRecord>;
+  getPostureEndpoint(id: string): Promise<PostureEndpointRecord | undefined>;
+  listPostureEndpoints(): Promise<PostureEndpointRecord[]>;
+  upsertPostureFinding(f: PostureFindingRecord): Promise<PostureFindingRecord>;
+  getPostureFinding(id: string): Promise<PostureFindingRecord | undefined>;
+  listPostureFindings(q?: PostureFindingQuery): Promise<PostureFindingRecord[]>;
 
   // Agent registry
   listAgents(): Promise<RegisteredAgent[]>;

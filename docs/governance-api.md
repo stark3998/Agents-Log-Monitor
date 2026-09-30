@@ -72,7 +72,23 @@ These endpoints also forward telemetry into the existing ingest pipeline, so `/i
 | `POST /api/gov/lanes` body `{ yaml }` or `{ lane }`, `status` (`draft`, `proposed` or `active`) | PolicyAdmin (`proposed`: any authenticated) | `LaneRecord` (new version) |
 | `POST /api/gov/lanes/:id/versions/:v/activate` / `archive` | PolicyAdmin | `LaneRecord` |
 | `POST /api/gov/lanes/validate` body `{ yaml }` | Viewer | `{ ok, errors: string[], lane? }` |
-| `POST /api/gov/lanes/simulate` body `{ yaml or lane, from?, to?, agentId?, limit? }` | Viewer | `{ evaluated, wouldAllow, wouldDeny, wouldJudge, wouldApprove, samples: [{eventId, sessionId, tool, summary, verdict, ruleIds}] }` |
+| `POST /api/gov/lanes/simulate` body `{ yaml or lane, from?, to?, agentId?, limit? }` | Viewer | `{ evaluated, wouldAllow, wouldDeny, wouldJudge, wouldApprove, wouldAlert, ruleHits, samples: [{eventId, sessionId, tool, summary, verdict, ruleIds}] }`. Active policies that apply to the lane are merged in. |
+| `GET /api/gov/presets` | Viewer | Policy preset catalog `{ filesystem, network, credential, capability, mcpCategory }` ([policies.md](policies.md)) |
+| `GET /api/gov/policies?status=` / `GET /api/gov/policies/:id?version=` / `GET /api/gov/policies/:id/versions` | Viewer | `PolicyRecord[]` / `PolicyRecord` / `PolicyRecord[]` |
+| `POST /api/gov/policies` body `{ yaml }` or `{ policy }`, `status` | PolicyAdmin (`proposed`: any authenticated) | `PolicyRecord` (new version). Activating a policy that applies to monitor agents needs a human PolicyAdmin. |
+| `POST /api/gov/policies/:id/versions/:v/activate` / `archive` | PolicyAdmin | `PolicyRecord` |
+| `POST /api/gov/policies/validate` / `simulate` body `{ yaml or policy, from?, to?, limit? }` | Viewer | `{ ok, errors, policy? }` / simulation result |
+| `GET /api/gov/policies/effective?laneId=` | Viewer | `{ lane (merged rules), policies, missing }` |
+| `GET /api/gov/classifiers` | Viewer | `{ items: Classifier[], config }` ([classifiers.md](classifiers.md)) |
+| `PATCH /api/gov/classifiers/:code` body `{ isActive?, enforceable? }` / `PUT /api/gov/classifiers/config` | PolicyAdmin | `Classifier` / `{ items, config }` |
+| `POST /api/gov/classifiers/test` body `{ text, codes?, custom? }` | Viewer | `{ detections (masked), errors }` |
+| `GET /api/gov/posture/checks` / `PUT /api/gov/posture/config` | Viewer / PolicyAdmin | Check catalog + config ([posture.md](posture.md)) |
+| `GET /api/gov/posture/summary` / `findings?state&severity&endpointId&checkId&level` / `findings/:id` | Viewer | Posture summary / `PostureFindingRecord[]` / finding + check |
+| `POST /api/gov/posture/findings/:id/suppress` body `{ reason, until? }` / `unsuppress` | PolicyAdmin | `PostureFindingRecord` |
+| `POST /api/gov/posture/findings/:id/fix` | human PolicyAdmin | One-click fix on the local endpoint (`409` for other endpoints) |
+| `GET /api/gov/posture/endpoints` / `endpoints/:id` | Viewer | Endpoint summaries / full inventory |
+| `POST /api/gov/posture/scan` | PolicyAdmin | Scan this device now |
+| `POST /api/gov/posture/reports` body `PostureReport` | device, Agent or PolicyAdmin | Ingest a CLI / device report |
 | `GET /api/gov/incidents?state=` / `GET /api/gov/incidents/:id` | Viewer | `Incident[]` / `Incident` |
 | `POST /api/gov/incidents` (Guardian / manual) | PolicyAdmin or Agent (monitor) | `Incident` |
 | `PATCH /api/gov/incidents/:id` | PolicyAdmin or Agent (monitor) | `Incident` |
@@ -94,9 +110,9 @@ These endpoints also forward telemetry into the existing ingest pipeline, so `/i
 Local mode accepts loopback clients and rejects non-loopback browser origins. Remote clients, and all clients in cloud mode, must pass a bearer token with the Viewer role as `?token=<jwt>`, because browsers can't set headers on a WebSocket.
 
 Governance messages are added next to the existing `timeline` and `sessions.updated`:
-`{type:"gov.decision", decision}`, `{type:"gov.approval", approval}`, `{type:"gov.agent", agent}`, `{type:"gov.lane", lane:{id,version,status}}`, `{type:"gov.incident", incident}`.
+`{type:"gov.decision", decision}`, `{type:"gov.approval", approval}`, `{type:"gov.agent", agent}`, `{type:"gov.lane", lane:{id,version,status}}`, `{type:"gov.policy", policy:{id,version,status}}`, `{type:"gov.posture", endpointId}`, `{type:"gov.incident", incident}`.
 
 ## MCP server — `/mcp` (Streamable HTTP) and `npm run mcp` (stdio)
-Read tools (Viewer): `list_agents`, `get_agent`, `list_sessions`, `get_session_timeline`, `search_actions`, `list_decisions`, `get_decision`, `list_blocked_actions`, `list_pending_approvals`, `list_incidents`, `get_incident`, `list_lanes`, `get_lane`, `simulate_lane`, `verify_audit_chain`, `get_overview_stats`.
+Read tools (Viewer): `list_agents`, `get_agent`, `list_sessions`, `get_session_timeline`, `search_actions`, `list_decisions`, `get_decision`, `list_blocked_actions`, `list_pending_approvals`, `list_incidents`, `get_incident`, `list_lanes`, `get_lane`, `simulate_lane`, `list_policies`, `get_policy`, `simulate_policy`, `list_classifiers`, `list_policy_presets`, `list_posture_findings`, `get_endpoint_inventory`, `verify_audit_chain`, `get_overview_stats`.
 
-Governed write tools: `approve_action` / `deny_action` (Approver), and `pause_agent`, `resume_agent`, `quarantine_session`, `propose_lane_change`, `create_incident`, `update_incident`, `acknowledge_incident` (PolicyAdmin, or Agent for the monitor's own Guardian). Every write tool call first goes to `decide()` with `checkpoint:"admin"`, `agent.surface:"monitor"`. `propose_lane_change` always creates a `proposed` lane and never activates it.
+Governed write tools: `approve_action` / `deny_action` (Approver), and `pause_agent`, `resume_agent`, `quarantine_session`, `propose_lane_change`, `propose_policy`, `create_incident`, `update_incident`, `acknowledge_incident` (PolicyAdmin, or Agent for the monitor's own Guardian). Every write tool call first goes to `decide()` with `checkpoint:"admin"`, `agent.surface:"monitor"`. `propose_lane_change` and `propose_policy` always create a `proposed` version and never activate it.

@@ -2,10 +2,16 @@
 import { govConfig } from '../config';
 import { govBus } from '../events';
 import { govStore } from '../store';
-import type { Decision, LaneRecord, RegisteredAgent } from '../types';
+import type { Decision, LaneRecord, PolicyRecord, RegisteredAgent } from '../types';
 import type { MirroredEvent } from '../store/cosmos-telemetry';
+import { invalidatePolicyCache } from '../policies';
+import { CLASSIFIER_SETTING_KEY, saveClassifierConfig } from '../classifiers';
+import type { PostureReport } from '../../posture/types';
 
-export type SyncOutboxItem = { kind: 'decision'; decision: Decision } | { kind: 'event'; event: MirroredEvent };
+export type SyncOutboxItem =
+  | { kind: 'decision'; decision: Decision }
+  | { kind: 'event'; event: MirroredEvent }
+  | { kind: 'posture'; report: PostureReport };
 type OutboxClaim = { id: string; item: unknown; attempts: number };
 
 const OUTBOX_MAX_ATTEMPTS = 10;
@@ -41,9 +47,32 @@ export function stopSyncForTests(): void {
 
 export async function runLocalSyncOnce(): Promise<void> {
   if (!govConfig.cloud.controlPlaneUrl) return;
-  await Promise.allSettled([pullCloudLanes(), pullAgentStatuses()]);
+  await Promise.allSettled([pullCloudLanes(), pullAgentStatuses(), pullCloudPolicies(), pullCloudClassifiers()]);
   await pollLocalTelemetryOnce();
   await drainSyncOutbox();
+}
+
+async function pullCloudPolicies(): Promise<void> {
+  const policies = await cpFetch<PolicyRecord[]>('/api/gov/policies?status=active');
+  const store = govStore();
+  let changed = false;
+  for (const rec of policies) {
+    const current = await store.getPolicy(rec.policy.id, rec.policy.version);
+    if (!current || JSON.stringify(current.policy) !== JSON.stringify(rec.policy) || current.status !== 'active') {
+      await store.savePolicy({ ...rec, status: 'active', updatedBy: rec.updatedBy ?? 'cloud-sync' });
+      changed = true;
+    }
+  }
+  if (changed) invalidatePolicyCache();
+}
+
+async function pullCloudClassifiers(): Promise<void> {
+  const remote = await cpFetch<{ config?: unknown }>('/api/gov/classifiers');
+  if (!remote?.config) return;
+  const local = await govStore().getSetting(CLASSIFIER_SETTING_KEY);
+  if (JSON.stringify(local?.value) === JSON.stringify(remote.config)) return;
+  const r = await saveClassifierConfig(remote.config, 'cloud-sync');
+  if (!r.ok) console.warn(`[gov-sync] cloud classifier config rejected: ${r.errors.join('; ')}`);
 }
 
 async function pullCloudLanes(): Promise<void> {

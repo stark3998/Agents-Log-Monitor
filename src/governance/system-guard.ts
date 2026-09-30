@@ -6,6 +6,8 @@ export interface SystemGuardContext {
   port: number;
   dbPath: string;
   lanesDir: string;
+  /** Policies-as-code folder (protected like the lanes directory). */
+  policiesDir?: string;
   /** The `.env` file the monitor loads its configuration from (null when disabled). */
   envFile?: string | null;
 }
@@ -74,6 +76,7 @@ function isForwarderPath(p: string): boolean {
 
 function sensitivePathKind(p: string, ctx: SystemGuardContext): string | null {
   if (isSameOrUnder(p, ctx.lanesDir)) return 'lanes directory';
+  if (ctx.policiesDir && isSameOrUnder(p, ctx.policiesDir)) return 'policies directory';
   if (isDbPath(p, ctx.dbPath)) return 'governance database';
   if (isHookConfigPath(p)) return 'governance hook configuration';
   if (isForwarderPath(p)) return 'governance hook forwarder';

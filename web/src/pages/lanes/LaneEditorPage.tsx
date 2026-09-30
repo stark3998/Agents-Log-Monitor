@@ -12,6 +12,7 @@ import {
   errorMessage, useLane, useLaneVersionAction, useLaneVersions, useSaveLane, validateLaneYaml, type Lane, type LaneDraftResult, type LaneRecord,
   type LaneValidation,
 } from '../../api/governance';
+import { useEffectivePolicies } from '../../api/policies';
 import { useAuth, useCan } from '../../auth/context';
 import { SectionCard } from '../../components/Common';
 import { Markdown } from '../../components/Markdown';
@@ -70,6 +71,17 @@ function ValidationErrors({ v }: { v: ReturnType<typeof useLaneValidation> }) {
       <ul>{v.result.errors.map((e, i) => <li key={`${i}-${e}`}>{e}</li>)}</ul>
     </Alert>
   );
+}
+
+
+function EffectiveRulesPanel({ laneId }: { laneId: string | null }) {
+  const q = useEffectivePolicies(laneId);
+  const lane = q.data?.lane;
+  const buckets = ['deny', 'approve', 'judge', 'allow', 'alert'] as const;
+  if (!laneId) return <Typography variant="body2" color="text.secondary">Save the lane before viewing effective policy rules.</Typography>;
+  if (q.isLoading) return <Skeleton variant="rounded" height={120} />;
+  if (q.isError) return <QueryError error={q.error} onRetry={() => void q.refetch()} />;
+  return <Stack spacing={1.5}>{q.data?.missing?.length ? <Alert severity="warning">Missing policies: {q.data.missing.join(', ')}</Alert> : null}<Stack spacing={0.75}>{(q.data?.policies ?? []).map(p => <Typography key={`${p.id}@${p.version}`} variant="caption">{p.global ? 'Global' : 'Attached'} policy {p.id} v{p.version}{p.mode ? ` ? ${p.mode}` : ''}</Typography>)}</Stack>{buckets.map(b => <Box key={b}><Typography variant="subtitle2" sx={{ textTransform: 'capitalize' }}>{b}</Typography><Stack spacing={0.5}>{(lane?.rules?.[b] ?? []).map((r, i) => <Box key={`${b}-${i}`} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}><Typography variant="body2" sx={{ fontFamily: 'var(--am-mono)' }}>{r.id ?? r.policyId ?? `${b}-${i + 1}`}</Typography><Typography variant="caption" color="text.secondary">{r.policyId ? `Policy ${r.policyId}${r.policyVersion ? ` v${r.policyVersion}` : ''}` : 'Lane rule'}{r.description ? ` ? ${r.description}` : ''}</Typography></Box>)}{!(lane?.rules?.[b] ?? []).length && <Typography variant="caption" color="text.secondary">No {b} rules.</Typography>}</Stack></Box>)}</Stack>;
 }
 
 function VersionHistory({ versions, current, editingYaml, onOpen }: { versions: LaneRecord[]; current: LaneRecord | null; editingYaml: string; onOpen: (r: LaneRecord) => void }) {
@@ -280,6 +292,11 @@ export function LaneEditorPage() {
           <SectionCard title="Simulate against history" subtitle="Replay recorded actions through this lane to preview its impact before activating.">
             <SimulatePanel yaml={yaml} disabled={!valid} initial={draft?.simulation} />
           </SectionCard>
+          {!isNew && (
+            <SectionCard title="Effective rules" subtitle="Merged lane and active policy rules by action bucket.">
+              <EffectiveRulesPanel laneId={rec?.lane.id ?? rawId} />
+            </SectionCard>
+          )}
           {!isNew && (
             <SectionCard title="Version history">
               {versions.isLoading ? <Skeleton variant="rounded" height={120} />

@@ -1,7 +1,7 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type Channel = 'log' | 'hook' | 'poll';
 
-export interface DetectorSummary { key: string; label: string; count: number; cls: 'secret' | 'pii' }
+export interface DetectorSummary { key: string; label: string; count: number; cls: 'secret' | 'pii' | 'other' }
 
 export interface Conversation {
   id: string;
@@ -177,7 +177,7 @@ export interface Settings {
     exists: boolean;
     error: string | null;
     risk: RiskRuleInfo[];
-    detectors: { key: string; label: string; cls: 'secret' | 'pii'; enabled: boolean }[];
+    detectors: { key: string; label: string; cls: 'secret' | 'pii' | 'other'; enabled: boolean; category?: string; sensitivity?: string; enforceable?: boolean; source?: string; description?: string }[];
     domainsIgnored: string[];
     severity: SeverityThresholds;
     severityDefaults: SeverityThresholds;

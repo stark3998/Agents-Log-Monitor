@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 import {
-  Box, Button, Checkbox, FormControl, FormControlLabel, FormGroup, FormLabel, IconButton, InputLabel, MenuItem, OutlinedInput, Select,
+  Autocomplete, Box, Button, Checkbox, FormControl, FormControlLabel, FormGroup, FormLabel, IconButton, InputLabel, MenuItem, OutlinedInput, Select,
   Stack, Switch, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import { usePolicies } from '../../api/policies';
 import type {
   AlertChannel, ApprovalChannel, DataPolicy, FailMode, GovSeverity, Lane, LaneMode, Surface, ToolCategory,
 } from '../../api/governance';
@@ -136,6 +137,10 @@ function CheckGroup<T extends string>({ label, value, options, onChange, readOnl
 export function LaneForm({ lane, onChange, readOnly, isNew }: { lane: Lane; onChange: (l: Lane) => void; readOnly?: boolean; isNew?: boolean }) {
   const set = <K extends keyof Lane>(k: K, v: Lane[K]) => onChange({ ...lane, [k]: v });
   const rules = lane.rules ?? {};
+  const policies = usePolicies('active');
+  const activePolicies = policies.data ?? [];
+  const attachablePolicies = activePolicies.filter(r => !r.policy.global);
+  const globalPolicies = activePolicies.filter(r => r.policy.global);
   const ruleCount = (['deny', 'allow', 'judge', 'approve'] as const).map(k => `${rules[k]?.length ?? 0} ${k}`).join(' · ');
   const limits = lane.limits ?? {};
   const setLimit = (k: keyof NonNullable<Lane['limits']>) => (v: number | undefined) => set('limits', { ...limits, [k]: v });
@@ -152,6 +157,15 @@ export function LaneForm({ lane, onChange, readOnly, isNew }: { lane: Lane; onCh
         </Stack>
         <MultiSelect label="Applies to surfaces" value={lane.appliesTo?.surfaces ?? []} options={SURFACES} readOnly={readOnly} onChange={v => set('appliesTo', { ...lane.appliesTo, surfaces: v })} />
         <StringList label="Applies to agents" values={lane.appliesTo?.agents ?? []} placeholder="agent id, external id or name glob" readOnly={readOnly} onChange={v => set('appliesTo', { ...lane.appliesTo, agents: v })} />
+        <Autocomplete
+          multiple
+          options={attachablePolicies.map(r => r.policy.id)}
+          value={lane.policies ?? []}
+          disabled={readOnly}
+          onChange={(_, v) => set('policies', v)}
+          getOptionLabel={id => activePolicies.find(r => r.policy.id === id)?.policy.name || id}
+          renderInput={params => <TextField {...params} size="small" label="Attached policies" helperText={globalPolicies.length ? `Also applies: ${globalPolicies.map(r => r.policy.name || r.policy.id).join(', ')}` : 'Attach active, non-global policies to this lane'} />}
+        />
       </Section>
 
       <Section title="Purpose" hint="What the agent is for. The LLM judge measures every gated action against this.">

@@ -6,37 +6,22 @@ import { z } from 'zod';
 import { govConfig } from '../config';
 import { govBus } from '../events';
 import { govStore } from '../store';
-import type { Lane, LaneCondition, LaneRecord, Surface, ToolCategory } from '../types';
+import type { Lane, LaneCondition, LaneRecord, Surface } from '../types';
 import { BUILTIN_DEFAULT_LANE } from './engine';
+import { conditionProblems, conditionShape } from '../policies/schema';
 
 const categories = ['READ', 'WRITE', 'EXEC', 'NETWORK', 'AGENT', 'MCP', 'OTHER'] as const;
 const surfaces = ['claude-code', 'copilot-cli', 'copilot-cloud-agent', 'vscode', 'mcp-gateway', 'sdk', 'foundry', 'copilot-studio', 'monitor', 'unknown'] as const;
 
 const strArray = z.array(z.string()).default([]);
 const categoryArray = z.array(z.enum(categories)).default([]);
-const commandArray = z.array(z.string()).superRefine((patterns, ctx) => {
-  for (let i = 0; i < patterns.length; i++) {
-    try { new RegExp(patterns[i]); } catch (err) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `invalid command regex "${patterns[i]}": ${(err as Error).message}`, path: [i] });
-    }
-  }
-}).default([]);
-const conditionSchema: z.ZodType<LaneCondition> = z.object({
-  id: z.string().optional(),
-  category: categoryArray.optional(),
-  tool: strArray.optional(),
-  mcpServer: strArray.optional(),
-  risk: strArray.optional(),
-  path: strArray.optional(),
-  domain: strArray.optional(),
-  command: commandArray.optional(),
-  detector: strArray.optional(),
-  tainted: z.boolean().optional(),
-  description: z.string().optional(),
-}).passthrough();
+const conditionSchema: z.ZodType<LaneCondition> = z.object(conditionShape).passthrough().superRefine((c, ctx) => {
+  for (const p of conditionProblems(c as LaneCondition, 'rule')) ctx.addIssue({ code: z.ZodIssueCode.custom, message: p });
+}) as unknown as z.ZodType<LaneCondition>;
 
 const laneSchema = z.object({
-  id: z.string().min(1),
+  // `:` is reserved: Cosmos document ids for policies/settings share the lanes container.
+  id: z.string().min(1).regex(/^[^:]+$/, 'lane id must not contain ":"'),
   version: z.number().int().positive().default(1),
   name: z.string().optional(),
   priority: z.number().int().default(0),
@@ -53,7 +38,9 @@ const laneSchema = z.object({
     allow: z.array(conditionSchema).default([]),
     judge: z.array(conditionSchema).default([]),
     approve: z.array(conditionSchema).default([]),
+    alert: z.array(conditionSchema).optional(),
   }).default({ deny: [], allow: [], judge: [], approve: [] }),
+  policies: z.array(z.string()).optional(),
   defaultVerdict: z.enum(['allow', 'deny', 'judge']).default('allow'),
   mode: z.enum(['observe', 'enforce', 'enforce+approval']).default('observe'),
   failMode: z.object({ default: z.enum(['open', 'closed']).default('closed') }).catchall(z.enum(['open', 'closed'])).default({ default: 'closed' }),

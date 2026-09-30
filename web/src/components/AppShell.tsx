@@ -3,6 +3,8 @@ import { Box, Button, IconButton, Stack, Tab, Tabs, Tooltip, Typography } from '
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
+import PolicyRoundedIcon from '@mui/icons-material/PolicyRounded';
+import HealthAndSafetyRoundedIcon from '@mui/icons-material/HealthAndSafetyRounded';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useThemeMode } from '../theme/ThemeModeProvider';
 import { useLiveStatus } from '../api/live';
@@ -23,6 +25,8 @@ const TABS = [
   { path: '/approvals', label: 'Approvals', gov: true },
   { path: '/agents', label: 'Agents', gov: true },
   { path: '/lanes', label: 'Lanes', gov: true },
+  { path: '/policies', label: 'Policies', gov: true, icon: <PolicyRoundedIcon fontSize="small" /> },
+  { path: '/posture', label: 'Posture', gov: true, icon: <HealthAndSafetyRoundedIcon fontSize="small" /> },
   { path: '/incidents', label: 'Incidents', gov: true },
   { path: '/ask', label: 'Ask', gov: true },
 ];
@@ -105,7 +109,7 @@ function Shell({ children }: { children: ReactNode }) {
         </Stack>
         <Tabs value={current === -1 ? false : current} sx={{ mt: 0.5 }} aria-label="Sections" variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
           {tabs.map(t => (
-            <Tab key={t.path} label={t.path === '/approvals' ? <ApprovalsLabel /> : t.label} component={Link} to={tabHref(t.path)} />
+            <Tab key={t.path} icon={t.icon} iconPosition="start" label={t.path === '/approvals' ? <ApprovalsLabel /> : t.label} component={Link} to={tabHref(t.path)} />
           ))}
         </Tabs>
       </Box>

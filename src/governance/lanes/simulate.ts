@@ -1,6 +1,7 @@
 ﻿import { all } from '../../db';
 import { extractFeatures } from '../features';
-import type { ActionRequest, Lane } from '../types';
+import { applicablePolicies, mergePolicies } from '../policies';
+import type { ActionRequest, Lane, Policy, RegisteredAgent } from '../types';
 import laneEngine from './engine';
 
 export interface LaneSimulationResult {
@@ -9,7 +10,18 @@ export interface LaneSimulationResult {
   wouldDeny: number;
   wouldJudge: number;
   wouldApprove: number;
+  wouldAlert: number;
+  /** Matches per rule id (all buckets), to see which rules carry the load. */
+  ruleHits: Record<string, number>;
   samples: { eventId: number; sessionId: string; tool?: string; summary: string; verdict: string; ruleIds: string[] }[];
+}
+
+export interface SimulateOptions {
+  from?: string; to?: string; agentId?: string; limit?: number;
+  /** Policies to merge per event (global ones in scope plus those the lane attaches). */
+  policies?: Policy[];
+  /** Ignore policy scope (used when simulating one policy on its own). */
+  ignoreScope?: boolean;
 }
 
 function payloadArgs(payload: string | null): unknown {
@@ -44,7 +56,7 @@ function payloadWorkspace(payload: string | null): string | undefined {
   return undefined;
 }
 
-export async function simulateLane(lane: Lane, opts: { from?: string; to?: string; agentId?: string; limit?: number } = {}): Promise<LaneSimulationResult> {
+export async function simulateLane(lane: Lane, opts: SimulateOptions = {}): Promise<LaneSimulationResult> {
   const where = [`tool_name IS NOT NULL`];
   const params: (string | number)[] = [];
   if (opts.from) { where.push('created_at >= ?'); params.push(opts.from); }
@@ -57,7 +69,7 @@ export async function simulateLane(lane: Lane, opts: { from?: string; to?: strin
       WHERE ${where.join(' AND ')} ORDER BY e.created_at DESC LIMIT ?`,
     [...params, limit],
   );
-  const out: LaneSimulationResult = { evaluated: 0, wouldAllow: 0, wouldDeny: 0, wouldJudge: 0, wouldApprove: 0, samples: [] };
+  const out: LaneSimulationResult = { evaluated: 0, wouldAllow: 0, wouldDeny: 0, wouldJudge: 0, wouldApprove: 0, wouldAlert: 0, ruleHits: {}, samples: [] };
   for (const r of rows) {
     const workspace = r.project_path ?? payloadWorkspace(r.payload);
     const req: ActionRequest = {
@@ -67,11 +79,23 @@ export async function simulateLane(lane: Lane, opts: { from?: string; to?: strin
       args: payloadArgs(r.payload), occurredAt: r.created_at,
     };
     const f = extractFeatures(req);
-    const ev = laneEngine.evaluate(lane, req, f, { tainted: false, workspace });
+    let effective = lane;
+    if (opts.policies?.length) {
+      const agentStub: RegisteredAgent = { id: r.agent_id, name: r.agent_id, surface: 'unknown', status: 'active', discovered: true, firstSeenAt: r.created_at, lastSeenAt: r.created_at };
+      const applicable = opts.ignoreScope
+        ? opts.policies.filter(p => p.enabled !== false)
+        : applicablePolicies(lane, opts.policies, agentStub, req);
+      effective = mergePolicies(lane, applicable);
+    }
+    const raw = laneEngine.evaluate(effective, req, f, { tainted: false, workspace });
+    // Mirror the PDP: observe-only policy rules never permit or gate an action.
+    const ev = { ...raw, judge: raw.judge.filter(m => m.condition.modeOverride !== 'observe'), allow: raw.allow.filter(m => m.condition.modeOverride !== 'observe') };
     out.evaluated++;
+    for (const m of [...(ev.deny ? [ev.deny] : []), ...ev.approve, ...ev.judge, ...ev.allow, ...ev.alert]) out.ruleHits[m.ruleId] = (out.ruleHits[m.ruleId] ?? 0) + 1;
+    if (ev.alert.length) out.wouldAlert++;
     const judgeRuleIds = ev.judge.map(m => m.ruleId);
     if (lane.defaultVerdict === 'judge') judgeRuleIds.push('default-judge');
-    const ruleIds = [ev.deny, ...ev.approve, ...ev.judge, ...ev.allow].filter(Boolean).map(m => m!.ruleId);
+    const ruleIds = [ev.deny, ...ev.approve, ...ev.judge, ...ev.allow, ...ev.alert].filter(Boolean).map(m => m!.ruleId);
     let verdict: 'allow' | 'deny' | 'judge' | 'approve' = 'allow';
     if (ev.deny) { out.wouldDeny++; verdict = 'deny'; }
     else if (ev.approve.length) { out.wouldApprove++; verdict = 'approve'; }
@@ -80,7 +104,17 @@ export async function simulateLane(lane: Lane, opts: { from?: string; to?: strin
     else if (lane.defaultVerdict === 'deny') { out.wouldDeny++; verdict = 'deny'; }
     else out.wouldAllow++;
     const verdictRuleIds = verdict === 'judge' ? judgeRuleIds : ruleIds.length ? ruleIds : verdict === 'deny' ? ['default-deny'] : [];
-    if (out.samples.length < 25 && verdict !== 'allow') out.samples.push({ eventId: r.id, sessionId: r.session_id, tool: r.tool_name, summary: f.summary, verdict, ruleIds: verdictRuleIds });
+    if (out.samples.length < 25 && (verdict !== 'allow' || ev.alert.length)) out.samples.push({ eventId: r.id, sessionId: r.session_id, tool: r.tool_name, summary: f.summary, verdict: verdict === 'allow' && ev.alert.length ? 'alert' : verdict, ruleIds: verdict === 'allow' && ev.alert.length ? ev.alert.map(m => m.ruleId) : verdictRuleIds });
   }
   return out;
+}
+
+/** Replay one policy against history on a rule-less observe lane (scope ignored). */
+export async function simulatePolicy(policy: Policy, opts: Omit<SimulateOptions, 'policies' | 'ignoreScope'> = {}): Promise<LaneSimulationResult> {
+  const lane: Lane = {
+    id: `simulate:${policy.id}`, version: 1, purpose: 'Policy simulation', dos: [], never: [], appliesTo: {},
+    rules: { deny: [], approve: [], judge: [], allow: [], alert: [] }, defaultVerdict: 'allow', mode: 'enforce',
+    failMode: { default: 'open' }, approval: { channels: ['dashboard'], timeoutSec: 60 }, judge: { escalateBelow: 0.7, dataPolicy: 'metadata-only' },
+  };
+  return simulateLane(lane, { ...opts, policies: [{ ...policy, enabled: true }], ignoreScope: true });
 }

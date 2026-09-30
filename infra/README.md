@@ -54,7 +54,8 @@ enforcers (the same TypeScript codebase in `local` mode) sync lanes down and eve
 
 | Container | Partition key | Notes |
 |---|---|---|
-| lanes, agents, audit, approvals, incidents | `/tenantId` | |
+| lanes, agents, audit, approvals, incidents | `/tenantId` | `lanes` also holds policies (`kind: policy`) and settings documents (`kind: setting`) |
+| posture | `/tenantId` | Endpoint posture: endpoints + inventories (`kind: endpoint`) and findings (`kind: finding`) |
 | sessions, decisions, events | `/sessionId` | `events` has TTL enabled (per-item `ttl`) |
 | outbox | `/box` | TTL enabled |
 

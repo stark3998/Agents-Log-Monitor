@@ -19,10 +19,10 @@ The idea is that the control lives where the agent acts, not in reading the mode
 
 Implemented in [`src/governance/pdp.ts`](../src/governance/pdp.ts):
 
-1. **Identify** the agent (registry, auto-discovery) and **resolve its lane**: an explicit assignment first, then the best `appliesTo` match by `priority`, then the built-in default lane.
+1. **Identify** the agent (registry, auto-discovery) and **resolve its lane**: an explicit assignment first, then the best `appliesTo` match by `priority`, then the built-in default lane. Applicable [policies](policies.md) (global ones in scope plus those the lane attaches) are merged into the lane's rules.
 2. **Kill switch**: a paused or quarantined agent or session is denied.
 3. **Limits**: action rate, subagent count and depth, token budget, loop detection (the same action N times) and session age. Limits are in-memory locally and use Redis in the cloud.
-4. **Deterministic lane rules** (target <1 ms): `deny` always wins, then `approve` (a human is required), then `judge` (the LLM is required), then `allow`.
+4. **Deterministic lane rules** (target <1 ms): `deny` always wins, then `approve` (a human is required), then `judge` (the LLM is required), then `allow`. `alert` rules never block; they are recorded and alerted. A policy in `mode: enforce` enforces even in an observe lane. A policy in `mode: observe` only records would-deny.
 5. **LLM judge** (Microsoft Foundry): gets the lane, the session goal, the trajectory digest and the action (shaped by the lane's `dataPolicy`). Low confidence escalates to the stronger model, and below `humanBelow` it escalates to a human. A tainted session raises the thresholds.
 6. **Human approval**:
    - If the surface supports it, the agent's native permission prompt (`ask`) is used.
@@ -69,6 +69,8 @@ When the judge is **not configured**, judge-gated actions are only failed if the
 |---|---|
 | `GOVERNANCE_ENFORCE` | `false` forces observe mode everywhere |
 | `GOVERNANCE_LANES_DIR` | Folder of lane YAML files (default: `./lanes`) |
+| `GOVERNANCE_POLICIES_DIR` | Folder of policy YAML files (default: `./policies`); `GOVERNANCE_POLICIES_AUTO_ACTIVATE=true` activates changed files directly |
+| `POSTURE_SCAN_INTERVAL_MIN`, `POSTURE_ORG_DOMAINS` | Endpoint posture scan interval (default 360 locally, `0` = off) and tenant e-mail domains. See [posture.md](posture.md). |
 | `FOUNDRY_OPENAI_ENDPOINT` (+ optional `FOUNDRY_OPENAI_API_KEY`) | Enables the LLM judge. Entra auth via `DefaultAzureCredential` when no key is set. |
 | `JUDGE_FAST_DEPLOYMENT`, `JUDGE_ESCALATION_DEPLOYMENT`, `INTENT_DEPLOYMENT` | Model deployment names (default `gpt-4.1-mini` / `gpt-5`) |
 | `JUDGE_FAST_TIMEOUT_MS`, `JUDGE_ESCALATION_TIMEOUT_MS` | Judge budgets |

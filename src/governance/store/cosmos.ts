@@ -4,15 +4,16 @@ import { DefaultAzureCredential } from '@azure/identity';
 import { GENESIS_HASH, hashDecision, verifyChain } from '../audit';
 import { govConfig } from '../config';
 import type {
-  Approval, Decision, Incident, LaneRecord, LaneStatus, RegisteredAgent, SessionIntent,
+  Approval, Decision, Incident, LaneRecord, LaneStatus, PolicyRecord, PostureEndpointRecord, PostureFindingRecord,
+  RegisteredAgent, SessionIntent,
 } from '../types';
 import type {
-  ApprovalQuery, AuditVerifyResult, DecisionQuery, GovernanceStore, IncidentQuery, Page,
+  ApprovalQuery, AuditVerifyResult, DecisionQuery, GovernanceStore, IncidentQuery, Page, PostureFindingQuery, SettingDoc,
 } from './repository';
 
 type Box = 'alerts' | 'sync';
 type CosmosLikeContainer = Pick<Container, 'id' | 'items' | 'item'> & { database?: { id: string } };
-type ContainerName = 'lanes' | 'agents' | 'sessions' | 'decisions' | 'audit' | 'approvals' | 'incidents' | 'outbox';
+type ContainerName = 'lanes' | 'agents' | 'sessions' | 'decisions' | 'audit' | 'approvals' | 'incidents' | 'outbox' | 'posture';
 
 export interface CosmosGovernanceStoreOptions {
   tenantId?: string;
@@ -54,6 +55,7 @@ const CONTAINER_DEFS: Record<ContainerName, { partitionKey: string; indexingPoli
   approvals: { partitionKey: '/tenantId' },
   incidents: { partitionKey: '/tenantId', indexingPolicy: policy(['/report/?', '/recommendations/*']) },
   outbox: { partitionKey: '/box' },
+  posture: { partitionKey: '/tenantId', indexingPolicy: policy(['/inventory/*', '/evidence/*']) },
 };
 
 function policy(excluded: string[]): unknown {
@@ -223,6 +225,7 @@ export class CosmosGovernanceStore implements GovernanceStore {
   }
 
   async saveLane(rec: LaneRecord): Promise<LaneRecord> {
+    if (rec.lane.id.includes(':')) throw new Error('lane id must not contain ":"');
     if (rec.status === 'active') {
       const versions = await this.listLaneVersions(rec.lane.id);
       await Promise.all(versions.filter(v => v.status === 'active' && v.lane.version !== rec.lane.version)
@@ -241,6 +244,133 @@ export class CosmosGovernanceStore implements GovernanceStore {
     if (!doc) return;
     doc.status = status; doc.updatedAt = new Date().toISOString(); doc.updatedBy = by;
     await this.replaceItem('lanes', doc.id, this.tenantId, doc, doc._etag);
+  }
+
+  // Policies share the tenant-partitioned `lanes` container (kind = "policy").
+  async listPolicies(status?: LaneStatus[]): Promise<PolicyRecord[]> {
+    const params = [{ name: '@tenantId', value: this.tenantId }];
+    let sql = 'SELECT * FROM c WHERE c.tenantId = @tenantId AND c.kind = "policy"';
+    if (status?.length) { sql += ' AND ARRAY_CONTAINS(@status, c.status)'; params.push({ name: '@status', value: status } as never); }
+    const rows = await this.fetchAll<PolicyRecord & { tenantId: string }>('lanes', { query: sql, parameters: params });
+    const latest = new Map<string, PolicyRecord>();
+    for (const r of rows) {
+      const rec = this.stripPolicy(r);
+      const prev = latest.get(rec.policy.id);
+      if (!prev || rec.policy.version > prev.policy.version) latest.set(rec.policy.id, rec);
+    }
+    return [...latest.values()].sort((a, b) => a.policy.id.localeCompare(b.policy.id));
+  }
+
+  async getPolicy(id: string, version?: number): Promise<PolicyRecord | undefined> {
+    if (version != null) {
+      const doc = await this.readItem<PolicyRecord & { tenantId: string }>('lanes', `policy:${id}:${version}`, this.tenantId);
+      return doc ? this.stripPolicy(doc) : undefined;
+    }
+    const rows = await this.fetchAll<PolicyRecord & { tenantId: string }>('lanes', {
+      query: 'SELECT * FROM c WHERE c.tenantId = @tenantId AND c.kind = "policy" AND c.policy.id = @id AND c.status = "active" ORDER BY c.policy.version DESC',
+      parameters: [{ name: '@tenantId', value: this.tenantId }, { name: '@id', value: id }],
+    }, { maxItemCount: 1 });
+    return rows[0] ? this.stripPolicy(rows[0]) : undefined;
+  }
+
+  async listPolicyVersions(id: string): Promise<PolicyRecord[]> {
+    const rows = await this.fetchAll<PolicyRecord & { tenantId: string }>('lanes', {
+      query: 'SELECT * FROM c WHERE c.tenantId = @tenantId AND c.kind = "policy" AND c.policy.id = @id ORDER BY c.policy.version DESC',
+      parameters: [{ name: '@tenantId', value: this.tenantId }, { name: '@id', value: id }],
+    });
+    return rows.map(r => this.stripPolicy(r));
+  }
+
+  async savePolicy(rec: PolicyRecord): Promise<PolicyRecord> {
+    if (rec.status === 'active') {
+      const versions = await this.listPolicyVersions(rec.policy.id);
+      await Promise.all(versions.filter(v => v.status === 'active' && v.policy.version !== rec.policy.version)
+        .map(v => this.setPolicyStatus(v.policy.id, v.policy.version, 'archived', rec.updatedBy)));
+    }
+    await this.c('lanes').items.upsert({ ...rec, id: `policy:${rec.policy.id}:${rec.policy.version}`, tenantId: this.tenantId, kind: 'policy' } as never);
+    return rec;
+  }
+
+  async setPolicyStatus(id: string, version: number, status: LaneStatus, by?: string): Promise<void> {
+    if (status === 'active') {
+      const versions = await this.listPolicyVersions(id);
+      await Promise.all(versions.filter(v => v.status === 'active').map(v => this.setPolicyStatus(v.policy.id, v.policy.version, 'archived', by)));
+    }
+    const doc = await this.readItem<(PolicyRecord & { id: string; tenantId: string; kind: string; _etag?: string })>('lanes', `policy:${id}:${version}`, this.tenantId);
+    if (!doc) return;
+    doc.status = status; doc.updatedAt = new Date().toISOString(); doc.updatedBy = by;
+    await this.replaceItem('lanes', doc.id, this.tenantId, doc, doc._etag);
+  }
+
+  private stripPolicy(doc: PolicyRecord & { tenantId?: string; id?: string }): PolicyRecord {
+    const { id: _id, ...rest } = this.stripDoc(doc) as PolicyRecord & { id?: string };
+    return rest;
+  }
+
+  // Settings (kind = "setting" in the `lanes` container)
+  async getSetting<T = unknown>(key: string): Promise<SettingDoc<T> | undefined> {
+    const doc = await this.readItem<SettingDoc<T> & { id: string; tenantId: string; kind: string }>('lanes', `setting:${key}`, this.tenantId);
+    if (!doc) return undefined;
+    return { key: doc.key, value: doc.value, updatedAt: doc.updatedAt, updatedBy: doc.updatedBy };
+  }
+
+  async putSetting<T = unknown>(key: string, value: T, by?: string): Promise<SettingDoc<T>> {
+    const out: SettingDoc<T> = { key, value, updatedAt: new Date().toISOString(), updatedBy: by };
+    await this.c('lanes').items.upsert({ ...out, id: `setting:${key}`, tenantId: this.tenantId, kind: 'setting' } as never);
+    return out;
+  }
+
+  // Posture (tenant-partitioned `posture` container; kind = endpoint | finding)
+  async upsertPostureEndpoint(e: PostureEndpointRecord): Promise<PostureEndpointRecord> {
+    await this.c('posture').items.upsert({ ...e, id: `endpoint:${e.id}`, endpointId: e.id, tenantId: this.tenantId, kind: 'endpoint' } as never);
+    return e;
+  }
+
+  async getPostureEndpoint(id: string): Promise<PostureEndpointRecord | undefined> {
+    const doc = await this.readItem<PostureEndpointRecord & { endpointId: string }>('posture', `endpoint:${id}`, this.tenantId);
+    return doc ? this.stripPostureEndpoint(doc) : undefined;
+  }
+
+  async listPostureEndpoints(): Promise<PostureEndpointRecord[]> {
+    const rows = await this.fetchAll<PostureEndpointRecord & { endpointId: string }>('posture', {
+      query: 'SELECT * FROM c WHERE c.tenantId = @tenantId AND c.kind = "endpoint" ORDER BY c.lastScanAt DESC',
+      parameters: [{ name: '@tenantId', value: this.tenantId }],
+    });
+    return rows.map(r => this.stripPostureEndpoint(r));
+  }
+
+  async upsertPostureFinding(f: PostureFindingRecord): Promise<PostureFindingRecord> {
+    await this.c('posture').items.upsert({ ...f, id: `finding:${f.id}`, findingId: f.id, tenantId: this.tenantId, kind: 'finding' } as never);
+    return f;
+  }
+
+  async getPostureFinding(id: string): Promise<PostureFindingRecord | undefined> {
+    const doc = await this.readItem<PostureFindingRecord & { findingId: string }>('posture', `finding:${id}`, this.tenantId);
+    return doc ? this.stripPostureFinding(doc) : undefined;
+  }
+
+  async listPostureFindings(q: PostureFindingQuery = {}): Promise<PostureFindingRecord[]> {
+    const where = ['c.tenantId = @tenantId', 'c.kind = "finding"'];
+    const parameters: { name: string; value: unknown }[] = [{ name: '@tenantId', value: this.tenantId }];
+    if (q.state?.length) { where.push('ARRAY_CONTAINS(@state, c.state)'); parameters.push({ name: '@state', value: q.state }); }
+    if (q.severity?.length) { where.push('ARRAY_CONTAINS(@severity, c.severity)'); parameters.push({ name: '@severity', value: q.severity }); }
+    if (q.endpointId) { where.push('c.endpointId = @endpointId'); parameters.push({ name: '@endpointId', value: q.endpointId }); }
+    if (q.checkId) { where.push('c.checkId = @checkId'); parameters.push({ name: '@checkId', value: q.checkId }); }
+    if (q.level) { where.push('c.level = @level'); parameters.push({ name: '@level', value: q.level }); }
+    const rows = await this.fetchAll<PostureFindingRecord & { findingId: string }>('posture', {
+      query: `SELECT TOP ${limit(q.limit, 5000, 20000)} * FROM c WHERE ${where.join(' AND ')} ORDER BY c.lastSeenAt DESC`, parameters,
+    });
+    return rows.map(r => this.stripPostureFinding(r));
+  }
+
+  private stripPostureEndpoint(doc: PostureEndpointRecord & { endpointId?: string }): PostureEndpointRecord {
+    const { endpointId, ...rest } = this.stripDoc(doc) as PostureEndpointRecord & { endpointId?: string };
+    return { ...rest, id: endpointId ?? rest.id };
+  }
+
+  private stripPostureFinding(doc: PostureFindingRecord & { findingId?: string }): PostureFindingRecord {
+    const { findingId, ...rest } = this.stripDoc(doc) as PostureFindingRecord & { findingId?: string };
+    return { ...rest, id: findingId ?? rest.id };
   }
 
   // Agents

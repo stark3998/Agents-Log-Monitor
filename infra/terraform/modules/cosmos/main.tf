@@ -66,6 +66,7 @@ locals {
     incidents = "/tenantId"
     outbox    = "/box"
     events    = "/sessionId"
+    posture   = "/tenantId"
   }
 
   # TTL: -1 = enabled but items never expire unless they carry their own `ttl` (outbox, events).

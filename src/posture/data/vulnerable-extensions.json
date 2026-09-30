@@ -1,0 +1,10 @@
+﻿[
+  { "id": "anthropic.claude-code", "name": "Claude Code", "host": "vscode", "affected": ">=0.2.116 <1.0.24", "advisoryUrl": "https://github.com/advisories/GHSA-9f65-56v6-gxw7", "cve": "CVE-2025-52882", "severity": "high" },
+  { "id": "nrwl.angular-console", "name": "Nx Console", "host": "vscode", "affected": "18.95.0", "advisoryUrl": "https://github.com/nrwl/nx-console/security/advisories/GHSA-c9j4-9m59-847w", "cve": "CVE-2026-48027", "severity": "critical" },
+  { "id": "AmazonWebServices.amazon-q-vscode", "name": "Amazon Q Developer", "host": "vscode", "affected": "1.84.0", "advisoryUrl": "https://aws.amazon.com/security/security-bulletins/AWS-2025-015/", "cve": "CVE-2025-8217", "severity": "critical" },
+  { "id": "eppiocemhmnlbhjplcgkofciiegomcon", "name": "Urban VPN Proxy", "host": "chrome", "affected": ">=5.5.0", "advisoryUrl": "https://thehackernews.com/2025/12/featured-chrome-browser-extension.html", "severity": "critical" },
+  { "id": "nimlmejbmnecnaghgmbahmbaddhjbecg", "name": "Urban VPN Proxy", "host": "edge", "affected": ">=5.5.0", "advisoryUrl": "https://thehackernews.com/2025/12/featured-chrome-browser-extension.html", "severity": "critical" },
+  { "id": "fnmihdojmnkclgjpcoonokmkhjpjechg", "name": "Chat GPT for Chrome with GPT-5, Claude Sonnet & DeepSeek AI", "host": "chrome", "affected": "all", "advisoryUrl": "https://thehackernews.com/2026/01/two-chrome-extensions-caught-stealing.html", "severity": "critical" },
+  { "id": "inhcgfpbfdjbjogdfjbclgolkmhnooop", "name": "AI Sidebar with Deepseek, ChatGPT, Claude and more", "host": "chrome", "affected": "all", "advisoryUrl": "https://thehackernews.com/2026/01/two-chrome-extensions-caught-stealing.html", "severity": "critical" },
+  { "id": "cursor", "name": "Cursor IDE", "host": "cursor", "vulnerableBelow": "1.3.9", "advisoryUrl": "https://github.com/cursor/cursor/security/advisories/GHSA-4cxx-hrm3-49rm", "cve": "CVE-2025-54135", "severity": "critical" }
+]
