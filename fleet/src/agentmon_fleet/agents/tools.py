@@ -1,5 +1,6 @@
-"""Tools the fleet's LLM agents use. All read paths return redacted, size-bounded JSON; the only write is
-`propose_containment`, which records a *proposed* action that a human must approve."""
+"""Tools the fleet's LLM agents use. Every result is secret/PII-redacted, size-bounded JSON wrapped as <untrusted> data
+(it contains content captured from monitored agents). The only write is `propose_containment`, which records a
+*proposed* action that a human must approve."""
 from __future__ import annotations
 
 import json
@@ -10,8 +11,10 @@ from typing import Annotated, Any
 from agent_framework import tool
 from pydantic import Field
 
+from ..llm import untrusted
 from ..models import Severity, utcnow
 from ..pipeline import Fleet
+from ..redact import redact_value
 
 _MAX = 12000
 _KQL_DENY = re.compile(r"(?i)(^\s*\.|\bexternaldata\b|\bexternal_table\b|\bevaluate\s+http_request|\bingest\b)")
@@ -20,8 +23,11 @@ CONTAINMENT = ("disable_agent_version", "revoke_connection", "enforce_session", 
 
 
 def _j(v: Any) -> str:
-    s = json.dumps(v, default=str, ensure_ascii=False)
-    return s if len(s) <= _MAX else s[:_MAX] + '…"[truncated]"'
+    """Redact, bound and mark tool output as untrusted before it reaches an agent's context."""
+    s = json.dumps(redact_value(json.loads(json.dumps(v, default=str))), default=str, ensure_ascii=False)
+    if len(s) > _MAX:
+        s = s[:_MAX] + '…"[truncated]"'
+    return untrusted(s, _MAX + 100)
 
 
 def _profile_brief(p) -> dict:

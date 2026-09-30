@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
@@ -121,11 +122,20 @@ def create_fleet_middleware(client: FleetClient, *, agent_name: str,
             await call_next()
             out = getattr(context, "result", None)
             if out is not None:
-                st["outputs"].append({"tool_name": name, "output": str(out)[:4000]})
+                text = str(out)
+                st["outputs"].append({"tool_name": name, "output": text[:4000]})
+                # Same id the hooks server assigns when this output arrives as `tool_outputs` on the next /evaluate,
+                # so the fleet stores it once.
                 await client.push_events([_event("tool_result", agent_name=agent_name, session_id=sid, tool_name=name,
-                                                 result=str(out)[:8000])])
+                                                 result=text[:8000], id=_tool_output_id(sid, name, text))])
 
     return [FleetAgentMiddleware(), FleetFunctionMiddleware()]
+
+
+def _tool_output_id(session_id: str, tool_name: str, output: str) -> str:
+    """Mirror of agentmon_fleet stable_id("hk-out", session, tool, output[:200])."""
+    basis = "|".join(["hk-out", session_id, str(tool_name), output[:200]])
+    return hashlib.sha256(basis.encode()).hexdigest()[:32]
 
 
 async def mcp_approval_responses(client: FleetClient, response: Any, *, agent_name: str, session_id: str,

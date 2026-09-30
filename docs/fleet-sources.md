@@ -273,7 +273,7 @@ The Terraform module rejects Owner, Contributor and User Access Administrator (s
 
 ### Dataverse
 
-Add the fleet's app or managed identity as a Dataverse **application user** in the Power Platform environment, with a **read-only security role**. `infra/lab/provision-lab.ps1 -Steps dataverse` creates the role **"AgentMon Fleet Reader"** (read on `bot`, `botcomponent`, `conversationtranscript` and `audit`), creates the application user, and enables auditing on `bot` and `botcomponent`. Terraform doesn't manage this step.
+Add the fleet's app or managed identity as a Dataverse **application user** in the Power Platform environment, with a **read-only security role**. `infra/lab/provision-lab.ps1 -Steps dataverse` creates the role **"AgentMon Fleet Reader"** (read on `bot`, `botcomponent`, `conversationtranscript` and `audit`) and the application user. Dataverse auditing can't be enabled on `bot`/`botcomponent` (platform-managed tables), so the script reports and skips that step; Copilot Studio authoring changes come from Purview audit and the fleet's definition-drift detection instead. Terraform doesn't manage this step.
 
 ### Hooks
 

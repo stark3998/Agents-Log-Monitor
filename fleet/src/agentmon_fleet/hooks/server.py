@@ -89,9 +89,9 @@ def create_app(evaluator: RealtimeEvaluator | None = None) -> FastAPI:
         if req.user_message:
             ctx_events.append(CanonicalEvent(id=stable_id("hk-msg", req.session_id, req.user_message[:160]),
                                              kind=EventKind.USER_MESSAGE, text=req.user_message, **base))
-        for i, o in enumerate(req.tool_outputs):
+        for o in req.tool_outputs:
             ctx_events.append(CanonicalEvent(
-                id=stable_id("hk-out", req.session_id, o.get("tool_name"), i, str(o.get("output"))[:200]),
+                id=stable_id("hk-out", req.session_id, o.get("tool_name"), str(o.get("output"))[:200]),
                 kind=EventKind.TOOL_RESULT, tool_name=o.get("tool_name"), result=o.get("output"), **base))
         pending = CanonicalEvent(
             id=stable_id("hk-call", req.session_id, req.tool_call_id or uuid.uuid4().hex, req.tool_name),

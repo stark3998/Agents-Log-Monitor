@@ -99,6 +99,23 @@ These endpoints also forward telemetry into the existing ingest pipeline, so `/i
 | `GET /api/gov/config` | Viewer | `{ mode, judge: {enabled, fast, escalation}, shields: {enabled}, intelligence: {enabled}, auth: <same as auth-config> }` |
 | `POST /api/gov/devices/enroll` body `{ deviceId?, ttlDays? }` | PolicyAdmin | `{ token, deviceId, expiresAt }`: device token with roles Agent + Viewer |
 
+### Monitoring fleet — `/api/gov/fleet` ([fleet.md](fleet.md))
+| Path | Role | Response |
+|---|---|---|
+| `POST /api/gov/fleet/alerts` body `{ alerts: FleetAlert[] }` (≤ 500 per call; idempotent on `alert_id`) | Agent or PolicyAdmin (the fleet's identity) | `202 { accepted }`; `400` on malformed alerts |
+| `GET /api/gov/fleet/alerts?severity&type&platform&agent&session&incident&since&limit` | Viewer | `FleetAlert[]`, newest first (comma-separated lists for `severity`, `type`, `platform`) |
+| `GET /api/gov/fleet/alerts/:id` | Viewer | `FleetAlert` |
+| `GET /api/gov/fleet/summary?since` (default: last 7 days) | Viewer | `{ since, total, bySeverity, byType, byPlatform, byAgent, byOwaspAgentic }` |
+
+The fleet writes incidents through `POST` / `PATCH /api/gov/incidents` with trigger `fleet:<alert_type>` and a `fleet` block (alert ids, OWASP/ATLAS mapping, fused score). Its `PATCH` never changes `state`, so analyst triage is preserved.
+
+### TypeSafe Jev shadow — `/api/gov/jev` ([jev.md](jev.md), [scan-methodology.md](scan-methodology.md))
+| Path | Role | Response |
+|---|---|---|
+| `GET /api/gov/jev/summary?since&until&kind` | Viewer | Agreement, latency and cost summary per shadow kind |
+| `GET /api/gov/jev/shadow?since&until&kind&sessionId&laneId&agree&limit&cursor` | Viewer | `{ items: JevShadowRecord[], cursor? }` |
+| `POST /api/gov/jev/shadow` body `JevShadowInput` | PolicyAdmin or Agent | `201 JevShadowRecord`. Append-only; the server assigns `id` and `createdAt`. Agent-role callers may write only `guardian_triage` and `fleet_*` kinds. |
+
 ### Intelligence proxy — `/api/gov/intelligence` (forwards to `INTELLIGENCE_URL`)
 | Path | Description |
 |---|---|
@@ -110,7 +127,7 @@ These endpoints also forward telemetry into the existing ingest pipeline, so `/i
 Local mode accepts loopback clients and rejects non-loopback browser origins. Remote clients, and all clients in cloud mode, must pass a bearer token with the Viewer role as `?token=<jwt>`, because browsers can't set headers on a WebSocket.
 
 Governance messages are added next to the existing `timeline` and `sessions.updated`:
-`{type:"gov.decision", decision}`, `{type:"gov.approval", approval}`, `{type:"gov.agent", agent}`, `{type:"gov.lane", lane:{id,version,status}}`, `{type:"gov.policy", policy:{id,version,status}}`, `{type:"gov.posture", endpointId}`, `{type:"gov.incident", incident}`.
+`{type:"gov.decision", decision}`, `{type:"gov.approval", approval}`, `{type:"gov.agent", agent}`, `{type:"gov.lane", lane:{id,version,status}}`, `{type:"gov.policy", policy:{id,version,status}}`, `{type:"gov.posture", endpointId}`, `{type:"gov.incident", incident}`, `{type:"gov.fleet.alerts", alerts}`.
 
 ## MCP server — `/mcp` (Streamable HTTP) and `npm run mcp` (stdio)
 Read tools (Viewer): `list_agents`, `get_agent`, `list_sessions`, `get_session_timeline`, `search_actions`, `list_decisions`, `get_decision`, `list_blocked_actions`, `list_pending_approvals`, `list_incidents`, `get_incident`, `list_lanes`, `get_lane`, `simulate_lane`, `list_policies`, `get_policy`, `simulate_policy`, `list_classifiers`, `list_policy_presets`, `list_posture_findings`, `get_endpoint_inventory`, `verify_audit_chain`, `get_overview_stats`.

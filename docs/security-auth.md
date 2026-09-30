@@ -5,7 +5,7 @@
 Create three Microsoft Entra registrations:
 
 1. **Agent Governance API**
-   - Expose an API with application ID URI `api://<api-client-id>`.
+   - Expose an API with an application ID URI. Terraform defaults to `api://<prefix>-<env>-api` (`api_identifier_uri`); some tenants' app-management policies only allow `api://<api-client-id>` or verified domains.
    - Add app roles: `Viewer`, `Approver`, `PolicyAdmin`, `Agent`.
    - Optionally expose delegated scopes for dashboard reads/writes; the API authorizes by app roles.
    - Tokens are accepted for both `api://<api-client-id>` and the bare client id.

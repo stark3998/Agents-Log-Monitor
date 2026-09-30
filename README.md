@@ -1,277 +1,178 @@
 # Agent Logs Monitor
 
-A real-time **monitoring and governance plane for AI agents**. It captures events from multiple agent platforms, analyzes them for risky actions, sensitive data, MCP servers and external domains, and streams the results to a Material UI dashboard.
+Agent Logs Monitor is a **monitoring and governance platform for AI agents**. It watches what agents actually do: the
+prompts they receive, the tools they call, the code they generate and run, the data and destinations they touch. It
+checks that behaviour against what each agent is supposed to do, and alerts, asks a human, or blocks when an agent goes
+out of bounds.
 
-It also **governs** agents inline. Each agent works in a *lane* (its purpose, what it may do, and what it must never do). Every tool call is approved, denied, sent to the agent's own permission prompt, or escalated to a human **before it executes**. Decisions combine:
+It covers three kinds of agent activity:
 
-- deterministic lane rules
-- a Microsoft Foundry LLM judge that checks the action against the lane, the session goal and the recent trajectory
-- prompt-injection taint from Azure AI Content Safety Prompt Shields
-- runaway/swarm limits
-- human approval (dashboard, Teams, or the agent's native prompt)
+| Where agents run | How the platform sees them | How it can intervene |
+|---|---|---|
+| **Endpoint coding agents**: Claude Code, GitHub Copilot CLI, VS Code agent mode, Copilot cloud agent | Enforcing hooks, session logs, transcripts | Inline allow / deny / ask / human approval **before a tool runs** |
+| **Microsoft Foundry** agents (prompt, workflow and hosted agents, and classic assistants) | Foundry project API, GenAI traces in Application Insights, resource diagnostics, activity and network logs | Real-time gate via Agent Framework middleware and MCP tool approval; alerts and incidents |
+| **Microsoft Copilot Studio** agents | Dataverse transcripts, Application Insights, the external threat-detection webhook, Purview audit | Real-time allow/block of every tool call (webhook); alerts and incidents |
+| **Direct model inference** (people and apps calling Foundry models without an agent) | Resource diagnostics (caller identity, deployment, tokens) | Unregistered-caller, anomaly and access alerts |
 
-Every decision goes into a hash-chained audit log. You can query all of it from any MCP client through the built-in MCP server. See **[docs/governance.md](docs/governance.md)**.
+## What it does
 
-## Governance at a glance
-
-| Capability | Where |
-|---|---|
-| Inline enforcement for Claude Code, Copilot CLI, Copilot cloud agent, VS Code agent mode | `install.ps1`, [docs/governance-surfaces.md](docs/governance-surfaces.md) |
-| MCP gateway that governs any MCP client (Foundry agents, Copilot Studio, IDEs) | `npm run gateway`, [docs/mcp-gateway.md](docs/mcp-gateway.md) |
-| SDKs for custom agents: Agent Framework, Semantic Kernel, LangChain, OpenAI Agents | [packages/sdk-ts](packages/sdk-ts/README.md), [packages/sdk-python](packages/sdk-python/README.md) |
-| Lanes-as-code, UI editor, AI-drafted lanes, replay against history | [docs/lanes.md](docs/lanes.md) |
-| Reusable **policies** (global or attached to lanes) built from presets: filesystem, network, credential, capability and MCP category | [docs/policies.md](docs/policies.md), [policies/org-baseline.yaml](policies/org-baseline.yaml) |
-| 96 **data classifiers** (secrets, PII, financial, healthcare…) with checksum validation, toggles and custom regex | [docs/classifiers.md](docs/classifiers.md) |
-| **Endpoint posture**: 30 checks for risky AI-agent configuration (auto-approve, bypass flags, third-party extensions, exposed tokens…), with alerts and one-click fixes | `npm run posture`, [docs/posture.md](docs/posture.md) |
-| MCP server to ask "what did my agents do, what was blocked and why?" | `/mcp`, `npm run mcp`, [docs/mcp.md](docs/mcp.md) |
-| Guardian investigator agent, lane drafter and "Ask the monitor" chat (Python, Agent Framework on Foundry) | [docs/intelligence.md](docs/intelligence.md) |
-| **TypeSafe Jev shadow mode**: fast, structured decisions (judge, injection, session scoring, Guardian triage) benchmarked against the LLM judge without affecting verdicts, plus the "Jev vs LLM" dashboard and `npm run eval:compare` | [docs/jev.md](docs/jev.md) |
-| Hybrid deployment: local enforcers plus an Azure control plane (Container Apps, Cosmos DB, Redis, Entra ID) | [docs/cloud-mode.md](docs/cloud-mode.md), [infra/README.md](infra/README.md) |
-| **AgentMon Fleet**: Python monitoring fleet for Foundry and Copilot Studio agents and direct model callers (charters, intent/evasion/inference detectors, Copilot Studio threat-detection webhook) | [docs/fleet.md](docs/fleet.md) |
-| Entra ID roles, device enrollment, Teams/webhook/email alerts | [docs/security-auth.md](docs/security-auth.md) |
-
-```powershell
-npm run eval:redteam   # replays credential-drift, metadata-endpoint, injection, runaway and approval scenarios
-```
-
-The built-in lanes start in `observe` mode, which logs would-deny decisions without blocking. Set `mode: enforce` in [lanes/coding-agent.yaml](lanes/coding-agent.yaml) (or in the Lanes page) once the would-deny rate looks right.
-
-## Monitoring fleet
-
-**AgentMon Fleet** ([`fleet/`](fleet/)) monitors enterprise AI agents in **Microsoft Foundry** and **Copilot Studio**, plus apps that call models directly, using the telemetry those platforms already produce. Sources include Log Analytics (resource logs, GenAI traces, activity, flow logs, Defender for AI), the Foundry data plane, Dataverse transcripts, and optionally Purview, Entra Agent ID and Defender XDR.
-
-Each agent gets a **charter** (derived by gpt-5.5, overridable in [fleet/charters](fleet/charters/lab-agents.yaml)). Detectors flag out-of-scope intent, goal drift and prompt injection, out-of-charter or obfuscated actions, attempts to work around a block (by the agent or the user), unregistered model callers, and control-plane tampering. Alerts are mapped to OWASP LLM, OWASP Agentic (ASI) and MITRE ATLAS, and go to Log Analytics (`AgentMonAlerts_CL`), the dashboard's **Fleet** page and incidents. The fleet only alerts and recommends; containment needs human approval.
-
-```powershell
-cd fleet; python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -e ".[dev]"
-agentmon-fleet run --once --console     # one monitoring cycle (FLEET_* settings in .env)
-agentmon-fleet hooks                    # real-time gate: Copilot Studio webhook, /evaluate
-agentmon-fleet scenarios list           # adversarial lab scenarios with recall/precision scoring
-```
-
-| Doc | Covers |
-|---|---|
-| [docs/fleet.md](docs/fleet.md) | Architecture, detectors and alert taxonomy, charters, LLM usage, configuration, deployment |
-| [docs/fleet-sources.md](docs/fleet-sources.md) | Each source: KQL and APIs, latency, required roles and consents, known gaps |
-| [docs/fleet-realtime-hooks.md](docs/fleet-realtime-hooks.md) | Copilot Studio threat detection, Foundry MCP approval, Agent Framework middleware |
-| [docs/apim-ai-gateway.md](docs/apim-ai-gateway.md) | Future phase: APIM AI gateway and the collector for it |
-
-## Supported sources
-
-| Source | Mechanism | Channel | Status |
-| --- | --- | --- | --- |
-| Claude Code | Push — enforcing HTTP hooks | `hook` | ✓ Active after `install.ps1` |
-| GitHub Copilot CLI | Pull — tails `~/.copilot/session-state/*/events.jsonl` | `log` | ✓ Active by default when the folder exists |
-| GitHub Copilot CLI (hooks) | Push — enforcing command hooks + forwarder | `hook` | Optional: `install.ps1 -CopilotHooks` |
-| Azure AI Foundry | Pull — Agent Service REST API | `poll` | Enabled via `FOUNDRY_ENDPOINT` |
-| Copilot Studio | Pull — Dataverse OData API | `poll` | Enabled via `DATAVERSE_ORG_URL` |
-
-Every event is labelled with the channel it arrived through. When Copilot CLI hooks and the Copilot CLI log report the same action, the two are merged into one entry marked **log + hook**. Governance hooks now call the Policy Decision Point before returning native allow/deny/ask decisions; the legacy `/ingest` endpoints remain available for backward compatibility.
-
-## The dashboard
-
-- **Overview:** KPI cards (active agents, sessions, sessions with sensitive data, risky actions, blocked/warned actions), each with the change since the previous period and a sparkline. Also shows an activity trend chart, a Top Agents table, and a heatmap of the MCP servers and external domains each agent reached. Every card, row and heatmap cell opens a filtered conversation list.
-- **Conversations:** a filterable, sortable table with agent, endpoint, user, severity, autonomy, detected data, enforcement and channel. Clicking a row opens a resizable, deep-linkable drawer (`?c=<id>`) with the full chat timeline:
-  - prompts and markdown replies, with reasoning collapsed
-  - consecutive tool calls grouped, each expandable to its request and response
-  - subagent threads
-  - search within the conversation (Ctrl+F, Enter / Shift+Enter)
-  - All / Messages / Tools / Findings filters
-  - live follow with a jump-to-latest button
-  - Markdown or JSON export
-- **Enforcements:** a read-only list of policy events: blocked tool calls, permission denials, permission prompts, and warnings for critical-risk actions.
-- **Other features:**
-  - dark theme by default, plus a light theme
-  - live status indicator
-  - Settings dialog (tune icon): collector health and setup steps, the effective detection rules, and privacy/storage status
-  - alerts for high-severity conversations
-  - export of activity logs as CSV or JSON Lines
-  - animations are reduced when the OS asks for reduced motion
-
-How findings, risk and severity are computed: [docs/analytics.md](docs/analytics.md).
-
-## Privacy and tuning
-
-- **Payload redaction is on by default.** Secrets (API keys, tokens, passwords, connection strings, private keys) are masked before payloads are stored, for example `ghp_****a1f3`. Detection runs on the raw content first, so findings are unaffected. Set `REDACT_PAYLOADS=off|secrets|all` (`all` also masks email addresses). When you raise the level, events stored earlier are redacted in the background on the next start.
-- **Findings never store raw values.** They keep only masked samples, whatever the redaction level.
-- **Severity, risk and detections are advisory heuristics.** Tune them in `agent-monitor.rules.json` next to the database, or at the path set by `AGENT_MONITOR_RULES`. You can:
-  - override or turn off risk rules, or add your own regex rules
-  - disable detectors
-  - ignore domains
-  - change the severity thresholds
-
-  Edits are picked up while the server runs, and stored events are re-analyzed in the background. The **Detection rules** tab in Settings shows the rules currently in effect. Schema and examples: [docs/analytics.md](docs/analytics.md#tuning--agent-monitorrulesjson).
-
-## Quick start
-
-```powershell
-# 1. Install dependencies (also installs web/ deps) and build server + UI
-npm install
-npm run build
-
-# 2. (Optional) Create your configuration file and edit it
-Copy-Item .env.example .env
-
-# 3. Wire Claude Code governance hooks (and optionally Copilot CLI hooks)
-.\install.ps1                 # or: .\install.ps1 -CopilotHooks
-
-# 4. Start the server
-.\start.ps1
-# → http://127.0.0.1:4317
-```
-
-On first start, Copilot CLI sessions from the last 7 days (`COPILOT_CLI_IMPORT_DAYS`) are imported in the background. The dashboard fills in as the import runs.
-
-All settings live in a single [`.env`](.env.example) file in the repo root; see [Configuration](#configuration).
-
-### Enable Azure AI Foundry
-
-Add to `.env`, then restart the server:
-
-```ini
-FOUNDRY_ENDPOINT=https://xxx.services.ai.azure.com/api/projects/myproject
-AZURE_CLIENT_ID=<client-id>
-AZURE_CLIENT_SECRET=<secret>
-AZURE_TENANT_ID=<tenant-id>
-```
-
-### Enable Copilot Studio
-
-Add to `.env`, then restart the server:
-
-```ini
-DATAVERSE_ORG_URL=https://myorg.crm.dynamics.com
-AZURE_CLIENT_ID=<client-id>
-AZURE_CLIENT_SECRET=<secret>
-AZURE_TENANT_ID=<tenant-id>
-# Optional: filter to a single bot
-COPILOT_BOT_ID=<bot-guid>
-```
-
-The Entra ID app registration used for Copilot Studio must have an **Application User** in the Dataverse environment with the **Bot Transcript Viewer** security role.
+- **Understands intent.** Each monitored agent gets a *lane* (endpoint agents) or a *charter* (Foundry and Copilot
+  Studio agents): its purpose, use cases, and allowed and forbidden capabilities and destinations. Charters are derived by
+  gpt-5.5 from the agent's definition and can be overridden as code. Each session's goal is inferred from the user's
+  turns and compared with the charter.
+- **Detects out-of-bounds behaviour:**
+  - out-of-scope requests and goal drift
+  - direct and indirect prompt injection
+  - out-of-charter tool use
+  - agent-generated scripts that harvest credentials, exfiltrate data, persist or evade defences (with deobfuscation)
+  - runaway loops
+  - unregistered model callers
+  - control-plane tampering (disabled diagnostics, key enumeration, guardrail changes)
+- **Catches workarounds.** It keeps a per-session ledger of every blocked or refused action. It flags an agent that tries
+  to reach the same outcome another way (different tool, encoding, file, or by asking the user to do it), and a user who
+  keeps pushing a refused request through rephrasing or jailbreak framing.
+- **Governs inline.** A Policy Decision Point combines deterministic rules, an LLM judge, Azure AI Content Safety Prompt
+  Shields, runaway limits and human approval, and records every decision in a hash-chained audit log.
+- **Measures itself.** An adversarial scenario runner scores detections for recall and precision against live lab
+  agents. TypeSafe Jev runs in shadow mode beside the LLM judges to compare agreement, latency and cost.
+- **Integrates with the SOC.** Alerts are mapped to OWASP Top 10 for LLM, OWASP Top 10 for Agentic Applications and
+  MITRE ATLAS. They go to the dashboard, to a Log Analytics custom table with Azure Monitor/Sentinel rules and a
+  workbook, and to Teams. Containment is always proposed for human approval, never automatic.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+  subgraph Endpoints["Endpoint agents"]
+    CC["Claude Code / Copilot CLI / VS Code"]
+  end
+  subgraph Cloud["Enterprise agent platforms"]
+    FDY["Microsoft Foundry"]
+    CPS["Copilot Studio"]
+    AZ["Azure Monitor / Log Analytics / App Insights / Dataverse"]
+  end
+  subgraph Platform["Agent Logs Monitor"]
+    SRV["Monitor server + governance plane (PDP)"]
+    WEB["Web dashboard"]
+    INT["Intelligence service (Guardian, Drafter, Ask)"]
+    FLT["Monitoring fleet (collectors, detectors, Fleet Commander)"]
+    HK["Real-time hooks"]
+  end
+  CC -- "hooks / logs" --> SRV
+  FDY -- telemetry --> AZ
+  CPS -- telemetry --> AZ
+  AZ -- "KQL / APIs" --> FLT
+  FDY -- "project API" --> FLT
+  CPS -- "threat-detection webhook" --> HK
+  HK --> FLT
+  FLT -- "alerts / incidents" --> SRV
+  FLT -- "AgentMonAlerts_CL" --> AZ
+  SRV --> WEB
+  INT <--> SRV
 ```
-src/                        Node/Express server (TypeScript, node:sqlite)
-  server.ts                 Entry point; registers collectors; starts pollers; mounts governance; serves the SPA
-  config.ts                 Env var config for each source
-  pipeline.ts               Shared ingest path: session/agent upsert → analysis → insert → live broadcast
-  db.ts                     node:sqlite wrapper (WAL), schema/migrations, statement cache
-  store.ts                  DB write helpers + hook↔log channel correlation
-  queries.ts                Read models: overview KPIs, agents, connections, conversations, enforcements
-  timeline.ts               Events → compact conversation timeline items (+ live updates)
-  broadcast.ts              WebSocket server (/live)
-  transcript-watcher.ts     JSONL poller for Claude Code thinking/assistant_text
-  analytics/                classify, domains, detectors, risk, severity, identity, analyze
-  collectors/               claude-code, copilot-cli (+hooks), foundry, copilot-studio
-  routes/                   /ingest/:collectorId, /api/* read models
-  governance/               Governance plane
-    types.ts, contracts.ts  Shared domain model and module contracts
-    pdp.ts                  Policy Decision Point (tiered pipeline)
-    lanes/                  Lane loader (YAML/zod), rule engine, simulation
-    judge/, shields/        Foundry LLM judge, Prompt Shields
-    jev/                    TypeSafe Jev shadow mode (questions, combine, queue, shadow, session scoring, stats)
-    intent/, limits/        Session goal/trajectory/taint, runaway limits
-    registry/, approvals/   Agent registry & kill switch, human approvals
-    hooks/                  /hooks/:surface native adapters (Claude Code, Copilot, VS Code)
-    routes/                 /v1 PDP API, /api/gov admin API, intelligence proxy, device enrollment
-    mcp/                    Monitor MCP server (/mcp, stdio)
-    store/                  GovernanceStore: SQLite (local) / Cosmos (cloud), hash-chained audit
-    sync/, runtime/         Local↔cloud sync, Redis backends
-    alerts/, auth.ts        Teams/webhook/email alerts, Entra ID auth
-  gateway/                  Governance MCP gateway (proxy)
-lanes/                      Lanes-as-code (default, coding-agent, monitor-guardian)
-packages/                   sdk-ts, sdk-python
-intelligence/               Python service: Guardian, lane drafter, chat (Microsoft Agent Framework)
-infra/terraform/            Azure control plane IaC
-web/                        React + Vite + MUI dashboard (builds into public/)
-scripts/                    Copilot CLI hook forwarders, judge eval
-templates/                  Copilot cloud agent / VS Code hook templates, Teams app manifest
-test/                       Backend, governance and red-team scenario tests
-electron/                   Electron tray shell (optional desktop app)
+
+| Component | Folder | Details |
+|---|---|---|
+| Monitor server + governance plane (TypeScript, Express, `node:sqlite`) | [`src/`](src/) | [Application architecture](docs/architecture/application.md), [Governance](docs/governance.md) |
+| Web dashboard (React, Vite, Material UI) | [`web/`](web/) | [Dashboard](docs/dashboard.md) |
+| Monitoring fleet (Python, Microsoft Agent Framework) | [`fleet/`](fleet/) | [Fleet](docs/fleet.md), [Agent architecture](docs/architecture/agents.md) |
+| Intelligence service (Python, Microsoft Agent Framework) | [`intelligence/`](intelligence/) | [Intelligence](docs/intelligence.md) |
+| MCP server and MCP gateway | [`src/governance/mcp`](src/governance/mcp), [`src/gateway`](src/gateway) | [MCP server](docs/mcp.md), [MCP gateway](docs/mcp-gateway.md) |
+| SDKs for custom agents (Agent Framework, Semantic Kernel, LangChain, OpenAI Agents) | [`packages/`](packages/) | [Python SDK](packages/sdk-python/README.md), [TypeScript SDK](packages/sdk-ts/README.md) |
+| Azure infrastructure (Terraform, GitHub Actions), SIEM content, lab | [`infra/`](infra/) | [Cloud configuration](docs/cloud-configuration.md), [Infrastructure](infra/README.md) |
+
+## Quick start
+
+Requirements: Node.js ≥ 22.5 (for `node:sqlite`; CI uses 24), Python 3.12 for the fleet, intelligence service and Python
+SDK, and Azure CLI for cloud sources. Full instructions: **[Installation](docs/installation.md)**.
+
+```powershell
+# Monitor server + dashboard + endpoint governance
+Copy-Item .env.example .env        # one .env configures every component (optional for a local run)
+.\install.ps1                      # npm install + build, then wires Claude Code hooks (-CopilotHooks / -VSCodeHooks for more)
+.\start.ps1                        # → http://127.0.0.1:4317
 ```
+
+On macOS/Linux use `./install.sh` (Claude Code and Copilot CLI hooks). To build without touching any agent hooks, run
+`npm install; npm run build; npm start`.
+
+```powershell
+# Monitoring fleet for Foundry / Copilot Studio / direct inference (FLEET_* settings in .env)
+cd fleet
+python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -e ".[dev]"
+agentmon-fleet discover                 # Foundry accounts and projects in scope
+agentmon-fleet run --once --console     # one monitoring cycle
+agentmon-fleet hooks --port 8787        # real-time gate: Copilot Studio webhook, /evaluate
+agentmon-fleet ask "What did my agents do today that was out of scope?"
+```
+
+The built-in lanes and fleet charters start in **observe** mode: they log and alert on would-deny decisions without
+blocking. Move an agent to enforce once the would-deny rate looks right.
+
+## Documentation
+
+The **[documentation index](docs/README.md)** lists every page and reading paths by role.
+
+| Guide | Covers |
+|---|---|
+| [Application architecture](docs/architecture/application.md) | Components, deployment modes, data stores, request flows, security model, repository layout |
+| [Agent architecture](docs/architecture/agents.md) | Fleet Commander and specialist agents, detector pipeline, session state, real-time gate, governance-plane agents |
+| [Data sources](docs/data-sources.md) | Every ingested source: content, collection, permissions, latency, detections |
+| [Scan methodology: rules vs Jev vs LLM](docs/scan-methodology.md) | Layered evaluation, where each engine runs, shadow mode, benchmarks, promotion criteria |
+| [Installation](docs/installation.md) | Local setup of every component, configuration, verification, troubleshooting |
+| [Cloud configuration](docs/cloud-configuration.md) | Azure, Entra, Foundry, Log Analytics, Power Platform, Microsoft 365 and GitHub setup; RBAC; Terraform deployment |
+| [Dashboard](docs/dashboard.md) | Tour of the web UI |
+
+Reference pages cover [governance](docs/governance.md), [lanes](docs/lanes.md), [policies](docs/policies.md),
+[classifiers](docs/classifiers.md), [posture](docs/posture.md), [hook surfaces](docs/governance-surfaces.md),
+[the governance API](docs/governance-api.md), [cloud mode](docs/cloud-mode.md), [security](docs/security-auth.md),
+[log ingestion](docs/log-ingestion.md), [analytics](docs/analytics.md), [the fleet](docs/fleet.md),
+[fleet sources](docs/fleet-sources.md), [real-time hooks](docs/fleet-realtime-hooks.md), [Jev](docs/jev.md),
+[the APIM AI gateway (future)](docs/apim-ai-gateway.md), [SIEM content](infra/sentinel/README.md) and
+[evaluation datasets](eval/README.md).
 
 ## Development
 
 ```powershell
-npm run dev          # API server with ts-node on :4317
-npm run dev:web      # Vite dev server on :5173 (proxies /api and /live to :4317)
-npm run build        # compile server to dist/ and the UI to public/
-npm test             # backend unit tests (vitest)
-npm run test:web     # UI unit tests (vitest + Testing Library)
-npm run electron:dev # Electron + ts-node
+npm run dev              # API server with ts-node on :4317
+npm run dev:web          # Vite dev server on :5173 (proxies /api and /live to :4317)
+npm test                 # server and governance tests (vitest)
+npm run test:web         # UI tests
+npm run eval:redteam     # governance red-team scenarios
+npm run eval:compare     # Jev vs LLM judge comparison
+cd fleet; .\.venv\Scripts\python -m pytest -q     # fleet tests
 ```
 
-Set `AGENT_MONITOR_DB` to use a different database file, and `PORT` to change the port (in `.env` or the shell).
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the following on every push and pull request:
+- Node build and tests
+- Python tests for the fleet, intelligence service and SDK
+- the TypeScript SDK tests
+- Docker image builds with Trivy scanning
+- Terraform fmt, validate and test
+- tfsec and Checkov
 
-### Configuration
+The deploy workflow ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) builds images and applies Terraform
+with GitHub OIDC. See [Cloud configuration](docs/cloud-configuration.md).
 
-Every component reads one `.env` file in the repo root: the server, the MCP stdio server, the MCP gateway, the Electron app, the Vite dev server and build, and the [intelligence service](intelligence/README.md). Start from the annotated template, which lists every supported variable:
+## Status and roadmap
 
-```powershell
-Copy-Item .env.example .env   # macOS/Linux: cp .env.example .env
-```
+- **Endpoint governance:** available. The built-in lanes run in observe mode by default.
+- **Monitoring fleet for Foundry:** available and validated on a live lab. The adversarial scenarios gave recall 0.727 and
+  precision 1.0; the remaining misses were cases where the model refused ([details](docs/fleet.md#lab-validation-results-foundry-2026-09-30)).
+- **Copilot Studio:** collectors, the threat-detection webhook and the lab plumbing are built and tested. End-to-end lab
+  validation is the next phase ([runbook](infra/lab/COPILOT-STUDIO-SETUP.md)).
+- **Later:**
+  - an [APIM AI gateway](docs/apim-ai-gateway.md) for content capture on direct inference
+  - per-session parallel detection
+  - promotion of Jev from shadow mode, based on [these criteria](docs/jev.md)
 
-- Variables already set in your shell win over `.env`. Empty values (`KEY=`) are ignored, so the built-in default applies.
-- Restart the process after you edit `.env`.
-- Set `AGENT_MONITOR_ENV_FILE` in the shell to use a different file, or `none` to skip it.
-- `.env` is git-ignored because it can hold secrets. Where you can, use `az login` or managed identity rather than `AZURE_CLIENT_SECRET` or API keys. `VITE_*` values are embedded in the built UI, so never put secrets in them.
-- Governance treats the active `.env` like the lanes and database: agent attempts to write to it are denied (`system.self.files`).
-- Docker and Azure Container Apps don't read `.env`. Set real environment variables there instead (see [infra/](infra/README.md)).
+See the roadmap in [docs/fleet.md](docs/fleet.md#roadmap).
 
-The most common settings:
-| Variable | Default | Purpose |
-|---|---|---|
-| `PORT` | `4317` | HTTP/WebSocket port (bound to 127.0.0.1) |
-| `AGENT_MONITOR_DB` | `./agent-monitor.db` | SQLite database file (WAL mode; `-wal`/`-shm` files sit beside it) |
-| `AGENT_MONITOR_PUBLIC` | `<app>/public` | Folder containing the built web UI |
-| `AGENT_MONITOR_RULES` | `agent-monitor.rules.json` next to the DB | Heuristics tuning file |
-| `REDACT_PAYLOADS` | `secrets` | `off`, `secrets` or `all` |
-| `COPILOT_CLI_ENABLED` / `COPILOT_HOME` / `COPILOT_CLI_IMPORT_DAYS` | on / `~/.copilot` / `7` | Copilot CLI log collector |
-| `AGENT_MONITOR_ENV_FILE` | `<repo>/.env` | Configuration file to load (`none` disables); shell only |
+## Security notes
 
-See [.env.example](.env.example) for governance, judge, Prompt Shields, cloud sync, Entra ID, alerts, gateway, web UI and intelligence settings.
-
-### Storage
-
-Events are stored with Node's built-in SQLite (`node:sqlite`) in WAL mode. Writes are incremental, and the only step that flushes to disk (the WAL checkpoint) runs on a worker thread, so large imports don't stall the dashboard. Ingest is batched per transaction, and the write-ahead log is truncated once it passes 64 MB. Existing `agent-monitor.db` files from earlier versions open as they are.
-
-### Desktop app (Electron)
-
-```powershell
-npm run electron:pack    # unpacked app in release/win-unpacked (quick smoke test)
-npm run electron:build   # NSIS installer in release/
-```
-
-The tray app runs the compiled server on **Electron's embedded Node**, so end users don't need Node.js installed. The app ships unpacked (`asar: false`) so the server and its dependencies load straight from `resources/app`. The database, rules file and `server.log` are stored in the app's user-data folder (`%APPDATA%\Agent Monitor`); open it from the tray with **Open Data Folder**. To configure the installed app, put a `.env` file in that folder (same format as [.env.example](.env.example)) and restart it from the tray. In development (`npm run electron:dev`) the repo-root `.env` is used, and `PORT` from it sets the port the tray opens. Fonts are bundled, so the UI works offline.
-
-### Hook enforcement surfaces
-
-`install.ps1` rewires Claude Code to `/hooks/claude-code` with blocking timeouts and can also install Copilot CLI, machine-wide Copilot policy, or VS Code Local hooks:
-
-```powershell
-.\install.ps1 -CopilotHooks -VSCodeHooks -FailMode open
-# Elevated PowerShell only:
-.\install.ps1 -CopilotPolicyHooks -FailMode closed
-```
-
-For macOS/Linux Claude Code and Copilot CLI setup, use `./install.sh --copilot-hooks`. For Copilot cloud agent and VS Code repository templates, see [Governance hook surfaces](docs/governance-surfaces.md).
-
-## Documentation
-
-- [Governance](docs/governance.md): lanes, checkpoints, the decision pipeline, modes, fail modes, configuration
-- [Lanes reference](docs/lanes.md): schema, rule conditions, defaults, rollout workflow
-- [Governance API](docs/governance-api.md): `/v1` PDP API, `/api/gov` admin API, WebSocket and MCP contracts
-- [Hook surfaces](docs/governance-surfaces.md), [MCP server](docs/mcp.md), [MCP gateway](docs/mcp-gateway.md), [Intelligence service](docs/intelligence.md), [Jev shadow mode & benchmark](docs/jev.md)
-- [Cloud mode](docs/cloud-mode.md), [Security & auth](docs/security-auth.md), [Infrastructure](infra/README.md)
-- [Log Ingestion](docs/log-ingestion.md): how each source is polled or pushed, event mappings, capture channels, the `NormalizedEvent` schema, and how to add a new source
-- [Analytics](docs/analytics.md): detectors, risk rules, policy events, severity, autonomy, redaction and the rules file
-- [Monitoring fleet](docs/fleet.md): [sources](docs/fleet-sources.md), [real-time hooks](docs/fleet-realtime-hooks.md), [APIM AI gateway (future)](docs/apim-ai-gateway.md), [SIEM rules and workbook](infra/sentinel/README.md)
-
-## Requirements
-
-- Node.js ≥ 22.5 (built-in `node:sqlite`)
-- Python ≥ 3.10 for the optional intelligence service and Python SDK
-- For Foundry / Copilot Studio: an Entra ID app registration with appropriate permissions (see [docs/log-ingestion.md](docs/log-ingestion.md))
-- For the LLM judge / Guardian: a Microsoft Foundry project with model deployments, plus the *Cognitive Services OpenAI User* role for the identity running the monitor
+- A single repo-root `.env` holds configuration and is git-ignored. Prefer `az login` or managed identity over client
+  secrets and API keys.
+- Captured agent content is redacted (secrets, PII) before storage and before any LLM analysis. Content from monitored
+  agents is always wrapped as untrusted data in LLM prompts.
+- Monitoring identities are least-privilege and read-only. The fleet only writes to its own alert table and to the
+  dashboard.

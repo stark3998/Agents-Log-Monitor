@@ -11,7 +11,8 @@
                  that the fleet identity has data-plane access (Foundry User) on the account.
     dataverse    In the AgentMon-Lab Power Platform environment: creates the least-privilege security role
                  "AgentMon Fleet Reader" (read bot, botcomponent, conversationtranscript, audit), an application user
-                 for the fleet service principal with that role, and enables auditing on bot/botcomponent.
+                 for the fleet service principal with that role. Dataverse auditing on bot/botcomponent is attempted
+                 only where the platform allows it (these tables are platform-managed; the step reports and skips).
     diagnostics  Reports AI accounts/projects NOT sending diagnostics to the lab workspace (read-only unless
                  -ApplyDiagnostics).
 

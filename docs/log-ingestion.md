@@ -120,15 +120,15 @@ The config registers PascalCase events (`SessionStart`, `SessionEnd`, `UserPromp
 **Mechanism:** Pull — Foundry Agent Service REST API  
 **Collector:** `src/collectors/foundry.ts`  
 **Default interval:** 60 seconds (`FOUNDRY_POLL_INTERVAL_MS`)  
-**Auth:** `DefaultAzureCredential`, scope `https://cognitiveservices.azure.com/.default`
+**Auth:** `DefaultAzureCredential`, scope `https://ai.azure.com/.default` (Foundry project endpoints reject the older `cognitiveservices.azure.com` audience)
 
 Foundry has no webhooks. Each poll fetches threads in descending order and stops when it reaches the last-seen thread cursor (persisted in the `poller_state` DB table across restarts). For each new thread it lists runs; for each terminal run (`completed` or `failed`) it fetches the ordered run steps. Steps of type `tool_calls` become tool-call events; `message_creation` steps become assistant-text events.
 
 Every event carries an `externalId` (e.g. `foundry:step:{stepId}:{tcId}`). The pipeline checks for an existing row with that ID and skips duplicates — so a server restart is safe.
 
-**API calls per poll cycle:**
+**API calls per poll cycle** (all with `api-version=v1`, relative to the project endpoint):
 ```
-GET {endpoint}/agents/v1/threads?limit=100&order=desc
+GET {endpoint}/threads?limit=100&order=desc
   └─ GET /threads/{id}/runs?limit=100&order=desc        (per new thread)
        └─ GET /threads/{id}/runs/{id}/steps?limit=100   (per terminal run)
 ```

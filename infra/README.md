@@ -41,7 +41,7 @@ enforcers (the same TypeScript codebase in `local` mode) sync lanes down and eve
 | `identity` | One user-assigned managed identity per app (`control-plane`, `mcp-gateway`, `intelligence`) |
 | `acr` | Container Registry (admin disabled), AcrPull for each identity, AcrPush for the deployer |
 | `keyvault` | Key Vault (RBAC, purge protection, 90-day soft delete), secrets, **per-secret** `Key Vault Secrets User` assignments |
-| `cosmos` | Cosmos DB NoSQL account (serverless or autoscale, local auth disabled, continuous backup), database `agentgov`, 11 containers, `Cosmos DB Built-in Data Contributor` |
+| `cosmos` | Cosmos DB NoSQL account (serverless or autoscale, local auth disabled, continuous backup), database `agentgov`, 12 containers, `Cosmos DB Built-in Data Contributor` |
 | `redis` | Azure Managed Redis (TLS only), connection URL written to Key Vault |
 | `content_safety` | Content Safety account (local auth disabled), `Cognitive Services User` |
 | `foundry_access` | Reads the **existing** Foundry account; `Cognitive Services OpenAI User` (+ `Azure AI User` for intelligence when a project is set) |
@@ -59,6 +59,7 @@ enforcers (the same TypeScript codebase in `local` mode) sync lanes down and eve
 | sessions, decisions, events | `/sessionId` | `events` has TTL enabled (per-item `ttl`) |
 | outbox | `/box` | TTL enabled |
 | jev_shadow | `/pk` | TypeSafe Jev shadow comparisons (non-authoritative, not in the audit chain). `pk` = sessionId or `tenant:<id>`; per-item `ttl` = `JEV_SHADOW_RETENTION_DAYS` |
+| fleet | `/tenantId` | Monitoring-fleet alerts (`kind: fleet_alert`) posted to `/api/gov/fleet/alerts`; evidence is stored but not indexed |
 
 Indexing: everything except `/args/*`, `/judge/*`, `/payload/*`; composite index `(tenantId ASC, createdAt DESC)`.
 

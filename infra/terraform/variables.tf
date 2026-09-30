@@ -359,9 +359,15 @@ variable "bot_sku" {
 }
 
 variable "bot_messaging_path" {
-  description = "Path on the control plane that receives Bot Framework activities."
+  description = "Path on the control plane that receives Bot Framework activities (served by src/governance/alerts/teams-bot.ts)."
   type        = string
-  default     = "/api/teams/messages"
+  default     = "/api/gov/teams/messages"
+}
+
+variable "teams_approver_object_ids" {
+  description = "Entra object ids allowed to approve/deny from Teams cards (TEAMS_APPROVER_OBJECT_IDS). Required for bot approvals."
+  type        = list(string)
+  default     = []
 }
 # ---------------------------------------------------------------------------------------------
 # Monitoring fleet (fleet/, optional). Everything below is inert unless enable_fleet = true.

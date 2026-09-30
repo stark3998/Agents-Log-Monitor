@@ -2,8 +2,9 @@ import { Collector, NormalizedEvent } from './types';
 
 /**
  * GitHub Copilot CLI — optional push channel. The forwarder script (scripts/copilot-hook-forward.*)
- * POSTs each hook payload to /ingest/copilot-cli-hooks. Accepts both the VS Code compatible
- * (PascalCase event, snake_case fields) and the native camelCase payload formats.
+ * POSTs each hook payload to /hooks/<surface> (the governance hook router), which normalizes it with this
+ * collector. Accepts both the VS Code compatible (PascalCase event, snake_case fields) and the native
+ * camelCase payload formats.
  */
 
 type Raw = Record<string, unknown>;

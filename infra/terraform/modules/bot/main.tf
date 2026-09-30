@@ -24,7 +24,7 @@ variable "identity" {
 }
 
 variable "messaging_endpoint" {
-  description = "https://<control-plane>/api/teams/messages"
+  description = "https://<control-plane>/api/gov/teams/messages"
   type        = string
 }
 

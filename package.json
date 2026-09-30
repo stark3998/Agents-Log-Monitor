@@ -1,7 +1,7 @@
 {
   "name": "agent-logs-monitor",
   "version": "0.1.0",
-  "description": "Local dashboard that monitors Claude Code, GitHub Copilot CLI and other agent activity",
+  "description": "Monitoring and governance platform for AI agents: endpoint coding agents, Microsoft Foundry and Copilot Studio",
   "main": "electron/main.js",
   "scripts": {
     "build": "tsc && npm run build:web",

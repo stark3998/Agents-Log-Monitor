@@ -321,7 +321,7 @@ agentmon-fleet investigate <session_id>          # markdown report saved on the 
 
 ## LLM usage
 
-All model calls go through `llm.py` to the Foundry project's OpenAI v1 endpoint (`<account>/openai/v1/`). They use Entra ID, or `FLEET_FOUNDRY_API_KEY` if set. Every prompt wraps captured content in `<untrusted>…</untrusted>` with an injection guard.
+All model calls go through `llm.py` to the Foundry project's OpenAI v1 endpoint (`<account>/openai/v1/`). They use Entra ID, or `FLEET_FOUNDRY_API_KEY` if set. Every detector prompt wraps captured content in `<untrusted>…</untrusted>` with an injection guard, and Fleet Commander tool results are redacted and returned inside the same `<untrusted>` wrapper. `FLEET_LLM_BUDGET_PER_CYCLE` bounds detector calls (charters, intent, alignment, adjudicators, code judge, incident narratives). Embedding lookups for similarity and Fleet Commander runs (`ask`, `investigate`, `run --agentic`) are not counted against it, and `--no-llm` does not disable the Fleet Commander.
 
 | Use | Model | Setting | Reasoning effort |
 |---|---|---|---|

@@ -78,7 +78,8 @@ class RealtimeEvaluator:
         self.state = state or State(self.settings.state_db)
         self.llm = (get_llm() if self.settings.llm_enabled else None) if llm is True else (llm or None)
         self.jev: FleetJev | None = get_jev(self.settings) if jev is True else (jev or None)
-        self.detectors = [IntentAnalyst(), ActionAnalyst(), EvasionMonitor()]
+        self._evasion = EvasionMonitor()
+        self.detectors = [IntentAnalyst(), ActionAnalyst(), self._evasion]
         self._sinks = None
         self._lock = threading.Lock()
         self._shadow_tasks: set[asyncio.Task] = set()
@@ -151,7 +152,7 @@ class RealtimeEvaluator:
         with self._lock:
             self.state.add_events([pending])
             if block:  # the denial must be on the ledger before the agent's next attempt arrives
-                self.detectors[2].process(pending, ctx)
+                self._evasion.process(pending, ctx)
             fresh = [a for a in alerts if self.state.upsert_alert(a)]
         for a in fresh:
             a.action = "block" if block else "alert"

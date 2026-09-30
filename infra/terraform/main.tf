@@ -279,6 +279,9 @@ locals {
     ACS_ENDPOINT                = var.communication_enabled ? module.communication[0].endpoint : ""
     ALERT_EMAIL_FROM            = var.communication_enabled ? module.communication[0].sender_address : ""
     ALERT_EMAIL_TO              = join(",", var.alert_email_to)
+    # The Azure Bot authenticates as the control-plane managed identity; the Teams route validates tokens for it.
+    TEAMS_BOT_APP_ID          = var.bot_enabled ? local.identities["control-plane"].client_id : ""
+    TEAMS_APPROVER_OBJECT_IDS = var.bot_enabled ? join(",", var.teams_approver_object_ids) : ""
   } : k => v if v != "" }
 
   control_plane_secret_env = merge(

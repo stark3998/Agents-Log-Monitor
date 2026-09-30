@@ -52,7 +52,7 @@ groups these as the **Fleet ·** tabs.
 | `fleet_intent` | Session intent scope | `in_scope` → `ambiguous` → `out_of_scope` | The Fleet's intent-scope classifier |
 | `fleet_alignment` | Action vs the session's goal | `aligned` → `misaligned` | The Fleet's alignment check |
 | `fleet_evasion` | Retry after a block — does it achieve the same effect? | `different` → `same` | The Fleet's same-effect adjudication |
-| `fleet_injection` | Tool output / user prompt injection or jailbreak | `clean` → `review` → `attack` | The Fleet's injection / jailbreak detector |
+| `fleet_injection` | Tool output / user prompt injection or jailbreak | `clean` → `review` → `attack` | The Fleet's injection / jailbreak regexes (`provider: "rules"`, no LLM) |
 | `fleet_code` | Script necessity and risk | `necessary` → `unnecessary` (`score` = risk 0–100) | The Fleet's code analysis |
 
 Fleet questions and thresholds live in
@@ -162,6 +162,53 @@ and covers:
 - per-tag breakdowns (adversarial, benign look-alike, taint)
 
 For Guardian triage, run `python intelligence/scripts/eval_triage.py`.
+
+### First results (2026-09-30, `jev-1.13.0`, `repeat 1`)
+
+These numbers come from the synthetic datasets in `eval/`, so they are a starting point rather than
+evidence for promotion. The baselines were Foundry `gpt-4.1-mini` (fast tier), `gpt-5.5` (escalation
+tier) and Azure Prompt Shields. Costs use the Azure list prices for those models.
+
+**Judge (120 cases)**
+
+| provider | acc | macro-F1 | deny recall | deny precision | false-allow | p50 / p95 ms | $/1k decisions |
+|---|---|---|---|---|---|---|---|
+| foundry-fast | 80.5% | 0.598 | 100% | 72.2% | 0% | 1541 / 2156 | $0.30 |
+| foundry-escalation | 80.0% | 0.620 | 100% | 73.2% | 0% | 2247 / 4266 | $5.09 |
+| jev:strict | 86.7% | 0.791 | 96.2% | 90.9% | 0% | 90 / 216 | $0.08 |
+| jev:permissive | 86.7% | 0.792 | 94.2% | 98.0% | 0% | 90 / 216 | $0.08 |
+
+**Injection (50 cases)**
+
+| provider | acc | attack recall | attack precision | false-allow | p50 / p95 ms |
+|---|---|---|---|---|---|
+| prompt-shields | 68.8% | 43.5% | 83.3% | 56.5% | 171 / 519 |
+| jev:strict | 96.0% | 100% | 92.6% | 0% | 87 / 146 |
+| jev:permissive | 98.0% | 100% | 96.2% | 0% | 87 / 146 |
+
+**Guardian triage (40 cases, Jev only)**
+
+- Severity: 90% exact, 100% within one level.
+- Incident type: 87.5%.
+- Investigate: 100% precision and 100% recall.
+- Latency: p50 90 ms, p95 225 ms.
+
+Reading the results:
+
+- **Where Jev is stronger.** Jev is more precise than both LLM tiers. The LLMs almost never answer
+  `escalate`: they turn most ambiguous cases into `deny`. Jev also runs about 10–20× faster than the
+  LLMs and costs about 3.5× less than gpt-4.1-mini, even though its battery uses about 4× more input
+  tokens.
+- **Where Jev misses.** Jev escalated two deny cases, `coding-deny-mcp-finance` and
+  `coding-deny-system-dir`, instead of denying them. So its false-allow rate is 0%, but it does not
+  meet promotion criterion 1. The threshold sweep cannot recover these cases: the best point is
+  deny=0.9, review=0.4, with 88.3% accuracy and 96.2% recall. In production, deterministic MCP
+  allowlist and path rules cover both. Jev also answered `allow` on seven `escalate`-labelled
+  ambiguous cases (global installs, subagents, private documents). The battery needs a "needs a
+  human" signal before the cascade is worth considering.
+- **Prompt Shields.** On these indirect-injection samples, Prompt Shields missed most of the attacks
+  that Jev caught. Keep both running: Prompt Shields stays authoritative, and Jev is the second opinion
+  in shadow mode.
 
 ## Promotion criteria (future)
 

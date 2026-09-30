@@ -3,9 +3,11 @@ import { PollableCollector, NormalizedEvent } from './types';
 import { config } from '../config';
 import { getPollerState, setPollerState } from '../store';
 
-const ENTRA_SCOPE = 'https://cognitiveservices.azure.com/.default';
-// API version for the Foundry Agent Service (mirrors OpenAI Assistants v2)
-const API_VERSION = '2024-12-01-preview';
+// Foundry project endpoints (https://<account>.services.ai.azure.com/api/projects/<project>) accept tokens for the
+// ai.azure.com audience and serve the Agent Service (classic threads/runs/steps) at the project root with api-version=v1.
+// The older cognitiveservices audience and /agents/v1 prefix are rejected (401/400) by current project endpoints.
+const ENTRA_SCOPE = 'https://ai.azure.com/.default';
+const API_VERSION = 'v1';
 
 // ── Wire types ──────────────────────────────────────────────────────────────
 
@@ -96,7 +98,7 @@ class FoundryCollector implements PollableCollector {
     // Load last-seen thread cursor from DB to handle restarts
     const lastCursor = getPollerState(this.id, 'thread_cursor', '');
 
-    let threadsUrl: string | null = `${base}/agents/v1/threads?limit=100&order=desc`;
+    let threadsUrl: string | null = `${base}/threads?limit=100&order=desc`;
     const newThreadIds: string[] = [];
 
     // Paginate threads; stop when we hit the last-seen cursor
@@ -107,7 +109,7 @@ class FoundryCollector implements PollableCollector {
         newThreadIds.push(thread.id);
       }
       threadsUrl = resp.has_more && resp.last_id
-        ? `${base}/agents/v1/threads?limit=100&order=desc&after=${resp.last_id}`
+        ? `${base}/threads?limit=100&order=desc&after=${resp.last_id}`
         : null;
     }
 
@@ -117,7 +119,7 @@ class FoundryCollector implements PollableCollector {
 
     for (const threadId of newThreadIds) {
       const runsResp = await this.fetchJson<ListResponse<FoundryRun>>(
-        `${base}/agents/v1/threads/${threadId}/runs?limit=100&order=desc`, tok,
+        `${base}/threads/${threadId}/runs?limit=100&order=desc`, tok,
       );
 
       for (const run of runsResp.data) {
@@ -157,7 +159,7 @@ class FoundryCollector implements PollableCollector {
 
     // Run steps
     const stepsResp = await this.fetchJson<ListResponse<FoundryRunStep>>(
-      `${base}/agents/v1/threads/${run.thread_id}/runs/${run.id}/steps?limit=100&order=asc`, tok,
+      `${base}/threads/${run.thread_id}/runs/${run.id}/steps?limit=100&order=asc`, tok,
     );
 
     for (const step of stepsResp.data) {

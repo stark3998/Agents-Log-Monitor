@@ -10,7 +10,7 @@ Cloud control plane:
 - `GOVERNANCE_TENANT_ID` / `AZURE_TENANT_ID` — tenant partition value.
 - `COSMOS_ENDPOINT` and `COSMOS_DATABASE` — Cosmos DB NoSQL account/database.
 - `COSMOS_KEY` — optional emulator/dev key. Production uses `DefaultAzureCredential`/managed identity.
-- `REDIS_URL` — optional Azure Cache for Redis URL, for example `rediss://:access-key@name.redis.cache.windows.net:6380`.
+- `REDIS_URL` — optional Redis URL. Terraform provisions Azure Managed Redis (TLS-only on port 10000) and stores the URL in Key Vault as `rediss://:<access-key>@<name>.<region>.redis.azure.net:10000`. Any Redis that accepts `rediss://` URLs works.
 
 Local enforcer sync:
 
@@ -31,7 +31,10 @@ Local enforcer sync:
 | `approvals` | `/tenantId` | Approval workflow records. |
 | `incidents` | `/tenantId` | Guardian/manual incidents. |
 | `outbox` | `/box` | Cloud-side alert/sync outboxes. |
-| `events` | `/sessionId` | Mirrored local telemetry events. |
+| `events` | `/sessionId` | Mirrored local telemetry events (per-item TTL). |
+| `posture` | `/tenantId` | Endpoint posture: endpoints and inventories (`kind: endpoint`), findings (`kind: finding`). |
+| `jev_shadow` | `/pk` | TypeSafe Jev shadow comparisons; non-authoritative, outside the audit chain ([jev.md](jev.md)). |
+| `fleet` | `/tenantId` | Monitoring-fleet alerts (`kind: fleet_alert`) from `/api/gov/fleet/alerts` ([fleet.md](fleet.md)). |
 
 Large or rarely filtered fields such as judge payloads, rule bodies, event payloads, and result text are excluded from indexing. Decision queries order by `createdAt DESC`; the store declares composite indexes for agent/time, lane/time, verdict/time, and session/time filters.
 

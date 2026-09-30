@@ -34,7 +34,7 @@ Run:
 .\install.ps1 -HookTimeoutSec 120
 ```
 
-This rewrites only Agent Monitor's old `/ingest/claude-code` entries to `http://127.0.0.1:<port>/hooks/claude-code`, keeps other hooks, and sets blocking hook timeouts to the approval budget. On macOS/Linux use `./install.sh --hook-timeout-sec 120`.
+This removes Agent Monitor's existing Claude Code hook entries (any hook whose URL ends in `/hooks/claude-code` or `/ingest/claude-code`), adds fresh `http://127.0.0.1:<port>/hooks/claude-code` entries, keeps every other hook, and sets blocking hook timeouts to the approval budget. On macOS/Linux use `./install.sh --hook-timeout-sec 120`.
 
 ### Copilot CLI local
 
@@ -68,7 +68,7 @@ Use the sample at `templates/vscode/agent-governance-hooks.json`, or run:
 .\install.ps1 -VSCodeHooks
 ```
 
-Ensure `chat.useHooks` is enabled and the workspace is trusted. For Copilot Agent Host sessions in VS Code, follow the Copilot CLI contract instead of the Local harness contract.
+The sample calls the forwarder by a workspace-relative path (`./scripts/copilot-hook-forward.sh`, `.\scripts\copilot-hook-forward.ps1`), so copy `scripts/copilot-hook-forward.*` into the target workspace as well, or edit the paths to point at this repository. Ensure `chat.useHooks` is enabled and the workspace is trusted. For Copilot Agent Host sessions in VS Code, follow the Copilot CLI contract instead of the Local harness contract.
 
 ## Sources
 
