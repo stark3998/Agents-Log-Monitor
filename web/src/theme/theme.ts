@@ -73,7 +73,10 @@ export function buildTheme(mode: Mode): Theme {
           '@keyframes am-match': { '0%': { boxShadow: `0 0 0 0 ${alpha(t.accent, 0.6)}` }, '100%': { boxShadow: `0 0 0 8px ${alpha(t.accent, 0)}` } },
           '@media (prefers-reduced-motion: reduce)': {
             '*, *::before, *::after': { animationDuration: '0.01ms !important', animationIterationCount: '1 !important', transitionDuration: '0.01ms !important', scrollBehavior: 'auto !important' },
-          },
+                        // A non-zero duration with the default `transition-property: all` makes SVG geometry
+                        // (e.g. foreignObject width) lag behind attribute changes, which breaks mermaid's getBBox layout.
+                        'svg *': { transitionProperty: 'none !important' },
+                      },
         },
       },
       MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },

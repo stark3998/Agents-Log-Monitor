@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
 import { Link as RouterLink } from 'react-router-dom';
 import { rehypeHeadingIds, type ResolvedLink } from '../lib/docs';
+import { MermaidDiagram } from './MermaidDiagram';
 
 /** Typography for rendered markdown (shared by the conversation timeline, incidents and chat). */
 export const markdownSx = {
@@ -20,6 +21,13 @@ export const markdownSx = {
   '& a': { color: 'primary.main' },
   '& blockquote': { m: 0, pl: 1.5, borderLeft: '3px solid', borderColor: 'divider', color: 'text.secondary' },
 };
+
+function hastText(node: unknown): string {
+  if (!node || typeof node !== 'object') return '';
+  const n = node as { type?: string; value?: string; children?: unknown[] };
+  if (n.type === 'text') return n.value ?? '';
+  return (n.children ?? []).map(hastText).join('');
+}
 
 function defaultResolve(href: string): ResolvedLink {
   return href.startsWith('/') || href.startsWith('#') ? { kind: 'internal', to: href } : { kind: 'external', href };
@@ -39,7 +47,15 @@ export function Markdown({ children, sx, resolveLink, headingIds }: {
         remarkPlugins={[remarkGfm]}
         rehypePlugins={headingIds ? [rehypeSanitize, rehypeHeadingIds] : [rehypeSanitize]}
         components={{
-          a: ({ href, children: c }: { href?: string; children?: ReactNode }) => {
+          pre: ({ node, children: c }) => {
+            const code = node?.children[0];
+            const cls = code?.type === 'element' && code.tagName === 'code' ? code.properties.className : undefined;
+            if (Array.isArray(cls) && cls.includes('language-mermaid')) {
+              return <MermaidDiagram source={hastText(code)} />;
+            }
+            return <pre>{c}</pre>;
+          },
+          a:  ({ href, children: c }: { href?: string; children?: ReactNode }) => {
             const r = href ? (resolveLink ?? defaultResolve)(href) : null;
             if (!r) return <>{c}</>;
             if (r.kind === 'internal') return <MuiLink component={RouterLink} to={r.to}>{c}</MuiLink>;
