@@ -42,7 +42,8 @@ type GovMessage =
   | { type: 'gov.policy'; policy?: { id: string; version: number; status: string } }
   | { type: 'gov.posture'; findingId?: string; endpointId?: string }
   | { type: 'gov.incident'; incident: Incident }
-  | { type: 'gov.fleet.alerts'; alerts: FleetAlert[] };
+  | { type: 'gov.fleet.alerts'; alerts: FleetAlert[] }
+  | { type: 'gov.simulation'; simulation?: { enabled: boolean } };
 
 /** Append a live decision to the per-session cache that drives conversation timeline badges. */
 export function applyGovDecision(qc: QueryClient, d: Decision): void {
@@ -77,6 +78,8 @@ export function handleGovMessage(qc: QueryClient, msg: GovMessage): string[] {
       // Seed per-alert caches (drawer), then refresh summary / lists / session timelines under ['gov', 'fleet'].
       for (const a of msg.alerts ?? []) if (a?.alert_id) qc.setQueryData(fleetKeys.alert(a.alert_id), a);
       return ['fleet'];
+    case 'gov.simulation':
+      return ['harness', 'config'];
   }
   return [];
 }

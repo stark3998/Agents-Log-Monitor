@@ -84,7 +84,12 @@ export function DecisionDetail({ d, onClose }: { d: Decision; onClose?: () => vo
         <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{d.reason || '—'}</Typography>
         {d.wouldDeny && (
           <Typography variant="caption" component="div" sx={{ mt: 0.75 }}>
-            Observe mode: the action was allowed, but enforcement would have returned “{d.effectiveVerdict}”.
+            {d.simulated ? 'Simulation mode' : 'Observe mode'}: the action was allowed, but enforcement would have returned “{d.effectiveVerdict}”.
+          </Typography>
+        )}
+        {d.simulated && !d.wouldDeny && d.effectiveVerdict !== d.verdict && (
+          <Typography variant="caption" component="div" sx={{ mt: 0.75 }}>
+            Simulation mode: the action was allowed, but enforcement would have returned “{d.effectiveVerdict}”.
           </Typography>
         )}
       </Box>

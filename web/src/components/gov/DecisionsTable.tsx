@@ -1,4 +1,5 @@
-import { Box, Skeleton, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
+import { Box, Skeleton, Stack, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
+import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
 import type { Decision } from '../../api/governance';
 import { Ellipsis, RelativeTime } from '../Primitives';
 import { VerdictChip } from './GovChips';
@@ -34,7 +35,12 @@ export function DecisionsTable({ rows, loading, onOpen, empty = 'No decisions', 
               aria-label={`Decision ${d.verdict} ${d.toolName ?? ''}`}
             >
               <TableCell sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}><RelativeTime iso={d.createdAt} /></TableCell>
-              <TableCell><VerdictChip verdict={d.verdict} wouldDeny={d.wouldDeny} size="tiny" /></TableCell>
+              <TableCell>
+                <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                  <VerdictChip verdict={d.verdict} wouldDeny={d.wouldDeny} size="tiny" />
+                  {d.simulated && <Tooltip title="Simulation mode: evaluated but never blocked"><ScienceRoundedIcon sx={{ fontSize: 14, color: 'warning.main' }} aria-label="Simulated" /></Tooltip>}
+                </Stack>
+              </TableCell>
               <TableCell sx={{ maxWidth: 160 }}><Ellipsis text={d.toolName ?? d.checkpoint} mono sx={{ fontSize: 12, display: 'block' }} /></TableCell>
               <TableCell sx={{ maxWidth: 320 }}><Ellipsis text={d.reason} sx={{ display: 'block' }} /></TableCell>
               {!dense && <TableCell sx={{ maxWidth: 140 }}><Ellipsis text={d.agentId} sx={{ display: 'block' }} /></TableCell>}

@@ -160,6 +160,8 @@ export interface Decision {
   approver?: string;
   /** Session was tainted by untrusted content at decision time. */
   tainted: boolean;
+  /** Governance simulation mode was on: the decision was forced to observe (see `wouldDeny` / `effectiveVerdict`). */
+  simulated?: boolean;
   latencyMs: number;
   createdAt: string;
   /** Hash chain (audit): sha256(prevHash + canonical(decision without seq/prevHash/hash)). */

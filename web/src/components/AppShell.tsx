@@ -17,6 +17,7 @@ import { LiveDot } from './Primitives';
 import { SettingsProvider, useOpenSettings } from './SettingsDialog';
 import { AlertsMenu } from './AlertsMenu';
 import { PrincipalMenu } from './gov/PrincipalMenu';
+import { SimulationHeaderChip } from './gov/TestHarnessCard';
 import { AskDrawerButton } from '../pages/ask/AskDrawerButton';
 
 const TABS = [
@@ -98,6 +99,7 @@ function Shell({ children }: { children: ReactNode }) {
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <Typography variant="h4" component="h1" sx={{ flex: 1 }}>Agent Activity</Typography>
           <LiveStatus />
+          {governance && <SimulationHeaderChip />}
           {needsLocalAdmin && <UnlockAdminHint />}
           {governance && <AskDrawerButton />}
           <Tooltip title="Sources, rules & privacy">

@@ -115,6 +115,16 @@ The fleet writes incidents through `POST` / `PATCH /api/gov/incidents` with trig
 | `GET /api/gov/jev/summary?since&until&kind` | Viewer | Agreement, latency and cost summary per shadow kind |
 | `GET /api/gov/jev/shadow?since&until&kind&sessionId&laneId&agree&limit&cursor` | Viewer | `{ items: JevShadowRecord[], cursor? }` |
 | `POST /api/gov/jev/shadow` body `JevShadowInput` | PolicyAdmin or Agent | `201 JevShadowRecord`. Append-only; the server assigns `id` and `createdAt`. Agent-role callers may write only `guardian_triage` and `fleet_*` kinds. |
+| `GET /api/gov/jev/benchmarks?judge&injection&triage` | Viewer | Latest offline benchmark run per dataset, read from `eval/results` or `JEV_EVAL_RESULTS_DIR`, plus the run history |
+
+### Test harness — simulation mode and Copilot hooks ([governance.md](governance.md#simulation-mode-testing))
+| Path | Role | Response |
+|---|---|---|
+| `GET /api/gov/simulation` | Viewer | `{ enabled, source, updatedAt?, updatedBy?, enforcementEnabled }` |
+| `PUT /api/gov/simulation` body `{ enabled }` | PolicyAdmin (not agents) | Audited. Forces every agent decision to observe (`simulated: true`); nothing is blocked. |
+| `GET /api/gov/hooks/copilot` | Viewer | Install status for the `copilot-cli` and `vscode` hook files, plus the forwarder location |
+| `POST /api/gov/hooks/copilot/install` body `{ targets?, failMode?, simulate? }` | PolicyAdmin (not agents), local mode | Audited. Writes `~/.copilot/hooks/agent-governance*.json`. `simulate: true` turns simulation on first. |
+| `POST /api/gov/hooks/copilot/uninstall` body `{ targets? }` | PolicyAdmin (not agents), local mode | Audited. Removes only this monitor's hook files. |
 
 ### Intelligence proxy — `/api/gov/intelligence` (forwards to `INTELLIGENCE_URL`)
 | Path | Description |

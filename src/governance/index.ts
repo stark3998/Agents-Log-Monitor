@@ -26,6 +26,7 @@ import { startSync } from './sync';
 import { startAlerts } from './alerts';
 import { startJevShadowRetention } from './jev/retention';
 import { startJevSessionScoring } from './jev/sessions';
+import { simulationState, startSimulationSync } from './simulation';
 
 /**
  * Governance bootstrap. Called from server.ts after initDb().
@@ -71,6 +72,7 @@ async function initRuntime(): Promise<void> {
 export async function initGovernance(app: Express): Promise<void> {
   await initGovernanceStore();
   await initRuntime();
+  await startSimulationSync();
   startLaneFileSync();
   startPolicyFileSync();
   startClassifierConfigRefresh();
@@ -86,6 +88,7 @@ export async function initGovernance(app: Express): Promise<void> {
   govBus.on('incident.created', i => broadcast({ type: 'gov.incident', incident: i }));
   govBus.on('incident.updated', i => broadcast({ type: 'gov.incident', incident: i }));
   govBus.on('fleet.alerts', alerts => broadcast({ type: 'gov.fleet.alerts', alerts }));
+  govBus.on('simulation', s => broadcast({ type: 'gov.simulation', simulation: s }));
 
   app.use('/v1', authenticate, decideRouter);
   app.use('/hooks', authenticate, requireRole('Agent'), hooksRouter);
@@ -115,5 +118,5 @@ export async function initGovernance(app: Express): Promise<void> {
   startPostureScheduler();
   startJevShadowRetention(); // no-op unless Jev shadow mode is enabled
   startJevSessionScoring(); // no-op unless Jev shadow mode + JEV_SHADOW_SESSIONS are enabled
-  console.log(`[governance] mode=${govConfig.mode} store=${govConfig.mode === 'cloud' ? 'cosmos' : 'sqlite'} judge=${govConfig.foundry.enabled ? 'foundry' : 'off'} shields=${govConfig.contentSafety.enabled ? 'on' : 'off'}`);
+  console.log(`[governance] mode=${govConfig.mode} store=${govConfig.mode === 'cloud' ? 'cosmos' : 'sqlite'} judge=${govConfig.foundry.enabled ? 'foundry' : 'off'} shields=${govConfig.contentSafety.enabled ? 'on' : 'off'}${simulationState().enabled ? ' SIMULATION (nothing is blocked)' : ''}`);
 }

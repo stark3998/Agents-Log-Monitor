@@ -25,6 +25,7 @@ import { useRangeKey } from '../../lib/range';
 import { fmtDuration, fmtNum, shortId } from '../../lib/format';
 import { ConversationDrawer } from '../conversation/ConversationDrawer';
 import { JevBenchmarkPanel } from './JevBenchmarkPanel';
+import { TestHarnessCard } from '../../components/gov/TestHarnessCard';
 
 const dur = (ms: number) => fmtDuration(ms) || '0ms';
 const isKind = (v: string | null): v is JevShadowKind => !!v && (JEV_KINDS as string[]).includes(v);
@@ -330,7 +331,7 @@ function emptyHint(kind: JevShadowKind): ReactNode {
     return (
       <>
         Live {kind === 'judge' ? 'judge' : 'injection'} comparisons only happen when agents' tool calls go through governance hooks. Passive log import is not
-        enough. Install them with <code>.\install.ps1 -CopilotHooks</code> (Copilot CLI) or <code>-VSCodeHooks</code>, or use the MCP gateway / SDK
+        enough. Install them with the <b>Governance test harness</b> below (turn on simulation so nothing is blocked), or with <code>.\install.ps1 -CopilotHooks</code>
         {kind === 'judge' ? <>. With <code>JEV_SHADOW_SCOPE=judge</code>, only calls escalated to the LLM judge are compared; <code>governed</code> compares every governed call.</> : '.'}
       </>
     );
@@ -510,6 +511,7 @@ export function JevComparisonPage() {
               </>
             )}
             <QueueFooter q={s.queue} />
+            <TestHarnessCard />
           </>
         )}
 

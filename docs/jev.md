@@ -142,6 +142,13 @@ can't pile up work in memory.
     percentiles, estimated cost, and counts of disagreements where Jev was stricter or looser. There's
     also a table of disagreements that links to each conversation.
 
+    Live judge and injection comparisons need governed agent traffic, meaning hooks that send tool
+    calls to the policy check. Imported logs are not enough. The **Governance test harness** card on
+    this view installs and uninstalls the Copilot CLI and VS Code hooks. It also switches on
+    [simulation mode](governance.md#simulation-mode-testing), so the traffic is evaluated and
+    compared without anything being blocked. `JEV_SHADOW_SCOPE=governed` compares every governed call,
+    not only the ones escalated to the LLM judge.
+
   The conversation drawer shows the Jev shadow next to each judged decision.
 - **API**:
   - `GET /api/gov/jev/summary?since=&until=&kind=`

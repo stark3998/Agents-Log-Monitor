@@ -22,6 +22,7 @@ import { canonicalJson } from './audit';
 import { policyDir } from './policies/loader';
 import { jevConfig } from './jev/config';
 import { shadowInjection, shadowJudge, shouldShadowJudge } from './jev/shadow';
+import { isSimulated } from './simulation';
 
 export interface DecideOptions {
   blocking: boolean;
@@ -178,6 +179,8 @@ async function human(lane: Lane, agent: RegisteredAgent, req: ActionRequest, f: 
   if (mode !== 'enforce+approval') {
     return { verdict: failVerdict(lane, f.category, f.riskLevel), stage: 'fail_mode', reason: `${reason} (human approval required; lane has no approval workflow)`, ruleIds: [] };
   }
+  // Simulation never blocks, so it must not park the agent on (or page anyone with) an approval request.
+  if (isSimulated(req)) return { verdict: 'escalate', stage: 'human', reason: `${reason} (simulation: approval not requested)`, ruleIds: [], cacheable: false };
   const approval = await approvals.request({ req, agent, lane, summary: f.summary, reason, channels, timeoutSec: lane.approval.timeoutSec });
   if (!opts.blocking) return { verdict: 'escalate', stage: 'human', reason, ruleIds: [], approvalId: approval.id };
   const waitMs = Math.min(lane.approval.timeoutSec * 1000, timeoutLeft(start, opts));
@@ -263,7 +266,8 @@ async function chooseCandidate(lane: Lane, agent: RegisteredAgent, intent: Await
   addCache(globalKey, c); return gated(decorate(c));
 }
 async function append(req: ActionRequest, agent: RegisteredAgent, lane: Lane, f: ActionFeatures, candidate: Candidate, mode: LaneMode, tainted: boolean, start: number): Promise<Decision> {
-  const decisionMode = candidate.modeOverride ?? mode;
+  const simulated = isSimulated(req);
+  const decisionMode = simulated ? 'observe' : candidate.modeOverride ?? mode;
   const applied = applyMode(candidate, decisionMode);
   const observed = candidate.observed;
   const wouldDeny = applied.wouldDeny || (!!observed?.ruleIds.length && applied.effectiveVerdict !== 'deny');
@@ -277,7 +281,7 @@ async function append(req: ActionRequest, agent: RegisteredAgent, lane: Lane, f:
     category: f.category, verdict: applied.verdict, effectiveVerdict: applied.effectiveVerdict, wouldDeny,
     stage: candidate.stage, reason: redactString(reason), ruleIds,
     riskLevel: f.riskLevel, judge: candidate.judge, approvalId: candidate.approvalId, approver: candidate.approver,
-    tainted, latencyMs: Date.now() - start, createdAt: nowIso(),
+    tainted, ...(simulated ? { simulated: true } : {}), latencyMs: Date.now() - start, createdAt: nowIso(),
   };
   const saved = await govStore().appendDecision(decision);
   govBus.emit('decision', saved);
@@ -363,8 +367,9 @@ export async function decide(req: ActionRequest, opts: DecideOptions): Promise<D
     const c: Candidate = { verdict, stage: 'fail_mode', reason: `PDP error: ${(err as Error).message}`, ruleIds: [] };
     try { return await append(req, agent, lane, feature, c, mode, false, start); }
     catch {
-      const applied = applyMode(c, mode);
-      return { id: crypto.randomUUID(), requestId: req.requestId, sessionId: req.sessionId, agentId: agent.id, laneId: lane.id, laneVersion: lane.version, mode, checkpoint: req.checkpoint, toolName: req.toolName, category: feature.category, verdict: applied.verdict, effectiveVerdict: applied.effectiveVerdict, wouldDeny: applied.wouldDeny, stage: 'fail_mode', reason: redactString(c.reason), ruleIds: [], riskLevel: feature.riskLevel, tainted: false, latencyMs: Date.now() - start, createdAt: nowIso() };
+      const simulated = isSimulated(req);
+      const applied = applyMode(c, simulated ? 'observe' : mode);
+      return { id: crypto.randomUUID(), requestId: req.requestId, sessionId: req.sessionId, agentId: agent.id, laneId: lane.id, laneVersion: lane.version, mode: simulated ? 'observe' : mode, checkpoint: req.checkpoint, toolName: req.toolName, category: feature.category, verdict: applied.verdict, effectiveVerdict: applied.effectiveVerdict, wouldDeny: applied.wouldDeny, stage: 'fail_mode', reason: redactString(c.reason), ruleIds: [], riskLevel: feature.riskLevel, tainted: false, ...(simulated ? { simulated: true } : {}), latencyMs: Date.now() - start, createdAt: nowIso() };
     }
   }
 }

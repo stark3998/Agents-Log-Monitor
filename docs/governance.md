@@ -45,7 +45,40 @@ When the judge is **not configured**, judge-gated actions are only failed if the
 | `enforce` | Decisions are enforced. Escalations use the native `ask` where available, otherwise the fail mode. |
 | `enforce+approval` | Enforced, and escalations and `approve` rules wait for a human (dashboard / Teams / native). |
 
-`GOVERNANCE_ENFORCE=false` forces every lane into observe mode (a global safety switch).
+`GOVERNANCE_ENFORCE=false` forces every lane into observe mode (a global safety switch). The system
+self-protection guard still enforces.
+
+### Simulation mode (testing)
+
+Simulation mode is a runtime switch for testing governance on real agents without blocking anything.
+Turn it on from **Governance → Governance test harness** (or **Jev vs LLM → Live shadow**), or with
+`PUT /api/gov/simulation {"enabled": true}`. `GOVERNANCE_SIMULATION=on` sets the default until an admin
+changes it.
+
+While simulation mode is on:
+
+- Every agent tool call still runs through everything that normally decides it: lane rules,
+  enforce-override policies, the LLM judge, limits, kill switches and the system self-protection guard.
+- The response to the agent is always *allow*. What enforcement would have done is recorded as
+  `effectiveVerdict` and `wouldDeny`, and the decision is tagged `simulated: true`.
+- Human approvals are not requested. The decision is recorded as `escalate` with stage `human`.
+- Admin actions (checkpoint `admin`, surface `monitor`) are never simulated.
+- The header shows a **Simulation** chip, and simulated decisions carry a flask icon.
+- Only non-agent `PolicyAdmin` principals can change the switch. Every change is written to the audit
+  log.
+
+The same card installs and uninstalls the GitHub Copilot CLI and VS Code agent-mode hook files in
+`~/.copilot/hooks` (or `$COPILOT_HOME/hooks`), the same files that `install.ps1 -CopilotHooks` and
+`-VSCodeHooks` write. This is available in local mode only; in cloud mode, hooks are installed on each
+endpoint.
+
+API:
+
+- `GET /api/gov/hooks/copilot`
+- `POST /api/gov/hooks/copilot/install {targets, failMode, simulate?}`
+- `POST /api/gov/hooks/copilot/uninstall {targets?}`
+
+Hooks take effect in new agent sessions.
 
 ## Enforcement points
 
@@ -69,7 +102,8 @@ When the judge is **not configured**, judge-gated actions are only failed if the
 
 | Variable | Purpose |
 |---|---|
-| `GOVERNANCE_ENFORCE` | `false` forces observe mode everywhere |
+| `GOVERNANCE_ENFORCE` | `false` forces observe mode everywhere (except the self-protection guard) |
+| `GOVERNANCE_SIMULATION` | `on` starts in simulation mode. Nothing is blocked, including the guard, and the dashboard switch overrides it. See [Simulation mode](#simulation-mode-testing). |
 | `GOVERNANCE_LANES_DIR` | Folder of lane YAML files (default: `./lanes`) |
 | `GOVERNANCE_POLICIES_DIR` | Folder of policy YAML files (default: `./policies`); `GOVERNANCE_POLICIES_AUTO_ACTIVATE=true` activates changed files directly |
 | `POSTURE_SCAN_INTERVAL_MIN`, `POSTURE_ORG_DOMAINS` | Endpoint posture scan interval (default 360 locally, `0` = off) and tenant e-mail domains. See [posture.md](posture.md). |

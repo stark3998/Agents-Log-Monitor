@@ -62,6 +62,8 @@ export interface Decision {
   approvalId?: string;
   approver?: string;
   tainted: boolean;
+  /** Governance simulation mode was on: forced to observe (see wouldDeny / effectiveVerdict). */
+  simulated?: boolean;
   latencyMs: number;
   createdAt: string;
   seq?: number;
@@ -688,6 +690,85 @@ export function useSessionAction() {
 }
 
 export const validateLaneYaml = (yaml: string) => apiSend<LaneValidation>('POST', 'gov/lanes/validate', { yaml });
+
+// ── Test harness: simulation mode + Copilot hook install (src/governance/routes/harness.ts) ──
+
+export interface GovSimulationState {
+  enabled: boolean;
+  source: 'env' | 'setting';
+  updatedAt?: string;
+  updatedBy?: string;
+  enforcementEnabled?: boolean;
+}
+
+export type HookTarget = 'copilot-cli' | 'vscode';
+export type HookFailMode = 'auto' | 'open' | 'closed';
+
+export interface HookTargetStatus {
+  target: HookTarget;
+  path: string;
+  installed: boolean;
+  managed: boolean;
+  failMode?: string;
+  port?: number;
+  modifiedAt?: string;
+}
+
+export interface CopilotHooksStatus {
+  mode: 'local' | 'cloud';
+  /** False in cloud mode: hooks are installed per endpoint, not by the control plane. */
+  available: boolean;
+  simulation: GovSimulationState;
+  copilotHome: string;
+  forwarder: { powershell: string; bash: string; present: boolean };
+  targets: HookTargetStatus[];
+}
+
+export const harnessKeys = {
+  simulation: ['gov', 'harness', 'simulation'] as const,
+  hooks: ['gov', 'harness', 'hooks'] as const,
+};
+
+export const useGovSimulation = (enabled = true) =>
+  useQuery({ queryKey: harnessKeys.simulation, queryFn: () => api<GovSimulationState>('gov/simulation'), enabled, staleTime: 30_000, retry: noRetryOn4xx });
+
+export const useCopilotHooks = () =>
+  useQuery({ queryKey: harnessKeys.hooks, queryFn: () => api<CopilotHooksStatus>('gov/hooks/copilot'), retry: noRetryOn4xx });
+
+function applyHarness(qc: QueryClient, s: CopilotHooksStatus | GovSimulationState): void {
+  if ('targets' in s) {
+    qc.setQueryData(harnessKeys.hooks, s);
+    qc.setQueryData(harnessKeys.simulation, s.simulation);
+  } else {
+    qc.setQueryData(harnessKeys.simulation, s);
+    qc.setQueryData<CopilotHooksStatus>(harnessKeys.hooks, h => (h ? { ...h, simulation: s } : h));
+  }
+}
+
+export function useSetGovSimulation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) => apiSend<GovSimulationState>('PUT', 'gov/simulation', { enabled }),
+    onSuccess: s => applyHarness(qc, s),
+  });
+}
+
+export function useInstallCopilotHooks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { targets: HookTarget[]; failMode: HookFailMode; simulate?: boolean }) =>
+      apiSend<CopilotHooksStatus>('POST', 'gov/hooks/copilot/install', body),
+    onSuccess: s => applyHarness(qc, s),
+  });
+}
+
+export function useUninstallCopilotHooks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (targets?: HookTarget[]) => apiSend<CopilotHooksStatus>('POST', 'gov/hooks/copilot/uninstall', targets ? { targets } : {}),
+    onSuccess: s => applyHarness(qc, s),
+  });
+}
 
 export const simulateLane = (body: { yaml: string; from?: string; to?: string; agentId?: string; limit?: number }) =>
   apiSend<SimulationResult>('POST', 'gov/lanes/simulate', body);

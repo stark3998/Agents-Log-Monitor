@@ -12,6 +12,8 @@ import { simulateLane } from '../lanes/simulate';
 import { intentTracker } from '../intent';
 import { activePolicies } from '../policies';
 import jevRouter from './jev';
+import harnessRouter from './harness';
+import { simulationState } from '../simulation';
 
 const router = Router();
 
@@ -40,6 +42,7 @@ router.get('/config', requireRole('Viewer'), (_req, res) => {
   res.json({
     mode: govConfig.mode,
     enforcementEnabled: govConfig.enforcementEnabled,
+    simulation: simulationState().enabled,
     lanesDir: govConfig.lanesDir || 'lanes',
     judge: { enabled: govConfig.foundry.enabled, fast: govConfig.foundry.fastDeployment, escalation: govConfig.foundry.escalationDeployment },
     shields: { enabled: govConfig.contentSafety.enabled },
@@ -247,5 +250,6 @@ router.get('/audit/export', requireRole('Viewer'), async (req, res) => {
 
 // TypeSafe Jev shadow-mode comparisons: /jev/summary, /jev/shadow (see routes/jev.ts).
 router.use(jevRouter);
+router.use(harnessRouter);
 
 export default router;

@@ -14,6 +14,7 @@ import { DEFAULT_RANGE, rangeBounds, useRangeKey } from '../../lib/range';
 import { fmtDuration, fmtNum } from '../../lib/format';
 import { fmtCountdown, useNow } from '../../lib/useNow';
 import { DecisionTrend } from './DecisionTrend';
+import { TestHarnessCard } from '../../components/gov/TestHarnessCard';
 
 export function GovernanceOverviewPage() {
   const [range] = useRangeKey();
@@ -106,6 +107,8 @@ export function GovernanceOverviewPage() {
           )}
         </SectionCard>
       </Box>
+
+      <TestHarnessCard delay={260} />
 
       <DecisionDrawer id={open?.id ?? null} initial={open ?? undefined} onClose={() => setOpen(null)} />
     </Stack>

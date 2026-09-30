@@ -18,6 +18,7 @@ export interface GovEvents {
   'incident.created': (i: Incident) => void;
   'incident.updated': (i: Incident) => void;
   'fleet.alerts': (alerts: FleetAlert[]) => void;
+  'simulation': (s: { enabled: boolean; source: 'env' | 'setting'; updatedAt?: string; updatedBy?: string }) => void;
 }
 
 class TypedBus extends EventEmitter {
