@@ -369,6 +369,87 @@ export interface JevShadowFilters {
   until?: string;
 }
 
+// ── Jev offline benchmarks (mirrored from src/governance/jev/benchmarks.ts) ──
+
+export type BenchmarkDataset = 'judge' | 'injection' | 'triage';
+
+export interface BenchmarkVariant {
+  variant: string;
+  provider: string;
+  models: string[];
+  total: number;
+  n: number;
+  errors: number;
+  accuracy: number;
+  macroF1: number;
+  positiveRecall: number;
+  positivePrecision: number;
+  falseAllowRate: number;
+  escalationRate: number;
+  perClass: Record<string, { precision: number; recall: number; f1: number; support: number; predicted: number }>;
+  confusion: Record<string, Record<string, number>>;
+  calibration?: { brier: number; ece: number; n: number } | null;
+  latency: LatencyStats;
+  tokens: { input: number; output: number };
+  costUsd?: number | null;
+  costPer1kUsd?: number | null;
+  selfConsistency?: number | null;
+  perTag: Record<string, { n: number; correct: number; accuracy: number }>;
+}
+
+export interface BenchmarkPrediction { verdict?: string; confidence?: number; error?: string }
+
+export interface BenchmarkCaseRow {
+  id: string;
+  expected: string;
+  tags: string[];
+  jev?: BenchmarkPrediction;
+  baseline?: BenchmarkPrediction;
+  jevCorrect: boolean;
+  baselineCorrect: boolean;
+}
+
+export interface CompareBenchmarkRun {
+  id: string;
+  dataset: 'judge' | 'injection';
+  generatedAt: string;
+  cases: number;
+  repeat: number;
+  positiveLabel: string;
+  providers: { id: string; variants: string[] }[];
+  skipped: { id: string; reason: string }[];
+  variants: BenchmarkVariant[];
+  agreement: Record<string, Record<string, { agree: number; compared: number; rate: number }>>;
+  headline?: {
+    jev: string; baseline: string; accuracyDelta?: number; positiveRecallDelta?: number;
+    falseAllowDelta?: number; p95Speedup?: number; costRatio?: number;
+  } | null;
+  sweep?: {
+    base: string; constraintMet: boolean; minPositiveRecall?: number; minPositiveRecallSource?: string;
+    best?: { params: Record<string, number>; accuracy: number; macroF1: number; positiveRecall: number; falseAllowRate: number; escalationRate: number } | null;
+    points: number;
+  } | null;
+  misses: BenchmarkCaseRow[];
+}
+
+export interface TriageBenchmarkRun {
+  id: string;
+  dataset: 'triage';
+  generatedAt: string;
+  model: string;
+  questionsVersion?: string;
+  metrics: Record<string, number>;
+  misses: { id: string; expected: Record<string, unknown>; got: Record<string, unknown> }[];
+}
+
+export interface JevBenchmarks {
+  available: boolean;
+  runs: { id: string; dataset: BenchmarkDataset; generatedAt: string }[];
+  judge?: CompareBenchmarkRun;
+  injection?: CompareBenchmarkRun;
+  triage?: TriageBenchmarkRun;
+}
+
 // ── Role helpers (mirror of src/governance/auth.ts roleClaims) ────────────
 
 export function expandRoles(roles: readonly Role[] | undefined): Set<Role> {
@@ -404,6 +485,7 @@ export const govKeys = {
   intent: (sessionId: string) => ['gov', 'intent', sessionId] as const,
   jevSummary: (rangeKey: string) => ['gov', 'jev', 'summary', rangeKey] as const,
   jevShadow: (f: JevShadowFilters & { range?: string }) => ['gov', 'jev', 'shadow', f] as const,
+  jevBenchmarks: (sel: Partial<Record<BenchmarkDataset, string>>) => ['gov', 'jev', 'benchmarks', sel] as const,
 };
 
 const enc = encodeURIComponent;
@@ -495,6 +577,16 @@ export const useJevSummary = (rangeKey: string) =>
     queryKey: govKeys.jevSummary(rangeKey),
     queryFn: () => { const b = rangeBounds(rangeKey); return api<JevShadowSummary>('gov/jev/summary', { since: b.from, until: b.to }); },
     placeholderData: keepPreviousData,
+    retry: noRetryOn4xx,
+  });
+
+/** Latest offline benchmark results per dataset (`GET /api/gov/jev/benchmarks`); pass run ids to pick older runs. */
+export const useJevBenchmarks = (sel: Partial<Record<BenchmarkDataset, string>> = {}) =>
+  useQuery({
+    queryKey: govKeys.jevBenchmarks(sel),
+    queryFn: () => api<JevBenchmarks>('gov/jev/benchmarks', { judge: sel.judge, injection: sel.injection, triage: sel.triage }),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
     retry: noRetryOn4xx,
   });
 

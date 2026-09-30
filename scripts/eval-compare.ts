@@ -171,9 +171,19 @@ export interface CompareProvider {
   sweepBase?: JevPolicy;
 }
 
-function foundryPrice(): M.Pricing | undefined {
-  const i = jevConfig.foundryPrice.inputPerMtok;
-  const o = jevConfig.foundryPrice.outputPerMtok;
+function envPrice(name: string): number | undefined {
+  const v = Number(process.env[name]);
+  return process.env[name] && Number.isFinite(v) && v >= 0 ? v : undefined;
+}
+
+/** FOUNDRY_PRICE_* prices the fast deployment; FOUNDRY_ESCALATION_PRICE_* (falling back to FOUNDRY_PRICE_*) the escalation one. */
+export function foundryPrice(tier: 'fast' | 'escalation' = 'fast'): M.Pricing | undefined {
+  let i = jevConfig.foundryPrice.inputPerMtok;
+  let o = jevConfig.foundryPrice.outputPerMtok;
+  if (tier === 'escalation') {
+    i = envPrice('FOUNDRY_ESCALATION_PRICE_INPUT_PER_MTOK') ?? i;
+    o = envPrice('FOUNDRY_ESCALATION_PRICE_OUTPUT_PER_MTOK') ?? o;
+  }
   if (i === undefined && o === undefined) return undefined;
   return { inputPerMtok: i ?? 0, outputPerMtok: o ?? 0 };
 }
@@ -185,7 +195,7 @@ export function foundryProvider(tier: 'fast' | 'escalation', j: Judge = foundryJ
     datasets: ['judge'],
     variants: [id],
     unavailableReason: () => (j.available ? null : 'Foundry judge not configured (FOUNDRY_OPENAI_ENDPOINT is not set)'),
-    price: foundryPrice,
+    price: () => foundryPrice(tier),
     async run(c) {
       const timeout = tier === 'fast' ? govConfig.foundry.fastTimeoutMs : govConfig.foundry.escalationTimeoutMs;
       const v = await j.evaluate(c.judgeInput as JudgeInput, tier, timeout);

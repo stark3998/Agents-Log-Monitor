@@ -126,13 +126,28 @@ can't pile up work in memory.
 
 ## Looking at the results
 
-- **Dashboard → Jev vs LLM**: agreement rate, a confusion matrix of baseline vs Jev, latency
-  percentiles, estimated cost, and counts of disagreements where Jev was stricter or looser. There's
-  also a table of disagreements that links to each conversation, and the drawer shows the Jev shadow
-  next to each judged decision.
+- **Dashboard → Jev vs LLM** has two views:
+  - **Offline benchmark** (the default) shows the latest `eval:compare` and `eval_triage` results for
+    the judge, prompt-injection and Guardian-triage datasets:
+    - Jev vs baseline tiles for accuracy, deny/attack recall, false-allow, p95 latency and cost per
+      1k decisions, plus the offline safety gate.
+    - Per-metric bars and a leaderboard across all providers.
+    - A confusion matrix per provider.
+    - The best threshold-sweep point and the pairwise agreement matrix.
+    - Accuracy by tag, and a filterable table of missed cases.
+
+    The server reads these results from `eval/results/`, or from `JEV_EVAL_RESULTS_DIR` when it is set.
+    When there are several runs, a picker selects older ones.
+  - **Live shadow** shows the agreement rate, a confusion matrix of baseline vs Jev, latency
+    percentiles, estimated cost, and counts of disagreements where Jev was stricter or looser. There's
+    also a table of disagreements that links to each conversation.
+
+  The conversation drawer shows the Jev shadow next to each judged decision.
 - **API**:
   - `GET /api/gov/jev/summary?since=&until=&kind=`
   - `GET /api/gov/jev/shadow?kind=&sessionId=&agree=false&...`
+  - `GET /api/gov/jev/benchmarks?judge=&injection=&triage=` (`Viewer`) returns the latest benchmark
+    run per dataset. Pass a run id (a results folder or file name) to pick an older run.
   - `POST /api/gov/jev/shadow` (`PolicyAdmin` or `Agent`), used by the intelligence service and the AgentMon Fleet — accepts `kind: "guardian_triage"` and the `fleet_*` kinds only (`judge`/`injection`/`session_score` → 400; those records are written in-process). `id` and `createdAt` are always server-assigned (client values ignored) and stores are insert-only, so existing records cannot be overwritten via the API.
 - **MCP**: the `jev_shadow_summary` tool.
 

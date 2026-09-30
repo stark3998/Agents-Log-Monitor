@@ -18,6 +18,7 @@ import math
 import sys
 import time
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +129,8 @@ async def run(args: argparse.Namespace) -> int:
         out = Path(args.json) if args.json else REPO_ROOT / "eval" / "results" / f"triage-{time.strftime('%Y%m%d-%H%M%S')}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         payload = {
+            "dataset": "triage",
+            "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "model": model,
             "questionsVersion": TRIAGE_QUESTIONS_VERSION,
             "metrics": metrics,

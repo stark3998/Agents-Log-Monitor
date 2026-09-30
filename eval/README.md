@@ -94,7 +94,9 @@ Credentials come from `.env` in the same way as the server: `TYPESAFE_API_KEY` f
 - latency p50, p95, p99 and mean, from successful calls only
 - input and output tokens
 - estimated cost and cost per 1k decisions. Jev is priced at $0.042 per million input tokens. Foundry
-  cost is only shown when `FOUNDRY_PRICE_INPUT_PER_MTOK` or `FOUNDRY_PRICE_OUTPUT_PER_MTOK` is set.
+  cost is only shown when `FOUNDRY_PRICE_INPUT_PER_MTOK` or `FOUNDRY_PRICE_OUTPUT_PER_MTOK` is set. These
+  price the fast tier. `FOUNDRY_ESCALATION_PRICE_INPUT_PER_MTOK` and `FOUNDRY_ESCALATION_PRICE_OUTPUT_PER_MTOK`
+  price the escalation tier; if unset, it falls back to the fast-tier prices.
 - Brier score and 10-bin ECE, computed from the predicted-class confidence (Prompt Shields reports no
   confidence, so it has none)
 - self-consistency when `--repeat` is greater than 1

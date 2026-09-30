@@ -6,7 +6,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { buildTheme } from '../theme/theme';
 import { AuthContext, type AuthState } from '../auth/context';
-import type { Decision, JevKindSummary, JevShadowRecord, JevShadowSummary } from '../api/governance';
+import type {
+  BenchmarkVariant, CompareBenchmarkRun, Decision, JevBenchmarks, JevKindSummary, JevShadowRecord, JevShadowSummary, TriageBenchmarkRun,
+} from '../api/governance';
 import { JevComparisonPage } from '../pages/jev/JevComparisonPage';
 import { DecisionBadge } from '../pages/conversation/DecisionBadge';
 import { AppShell } from '../components/AppShell';
@@ -79,7 +81,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 describe('Jev vs LLM page', () => {
   it('explains how to enable Jev when shadow mode is disabled', async () => {
     mockFetch({ 'GET /api/gov/jev/summary': summary({ enabled: false, kinds: [], queue: queue({ enqueued: 0, completed: 0, failed: 0, inFlight: 0 }) }) });
-    renderApp(<JevComparisonPage />);
+    renderApp(<JevComparisonPage />, { route: '/jev?view=live' });
     const card = await screen.findByTestId('jev-disabled');
     expect(within(card).getByText('Jev shadow mode is off')).toBeInTheDocument();
     expect(within(card).getByText('TYPESAFE_API_KEY')).toBeInTheDocument();
@@ -93,7 +95,7 @@ describe('Jev vs LLM page', () => {
       'GET /api/gov/jev/summary': summary({ queue: queue({ dropped: 4 }) }),
       'GET /api/gov/jev/shadow': { items: [] },
     });
-    renderApp(<JevComparisonPage />, { mode: 'light' });
+    renderApp(<JevComparisonPage />, { route: '/jev?view=live', mode: 'light' });
     expect(await screen.findByLabelText('Agreement 92.0%')).toBeInTheDocument();
     expect(screen.getByLabelText('Compared 50')).toBeInTheDocument();
     expect(screen.getByLabelText('Speedup 10.0× at p50')).toBeInTheDocument();
@@ -120,7 +122,7 @@ describe('Jev vs LLM page', () => {
 
   it('lists disagreements with conversation deep links and expandable signals', async () => {
     mockFetch({ 'GET /api/gov/jev/summary': summary(), 'GET /api/gov/jev/shadow': { items: [record(), record({ id: 'sh-2', sessionId: undefined, decisionId: undefined })] } });
-    renderApp(<JevComparisonPage />, { route: '/jev?range=24h' });
+    renderApp(<JevComparisonPage />, { route: '/jev?view=live&range=24h' });
     const table = await screen.findByRole('table', { name: 'LLM judge disagreements' });
     const link = within(table).getByRole('link', { name: 'Open conversation s-1' });
     expect(link.getAttribute('href')).toMatch(/^\/jev\?/);
@@ -139,9 +141,10 @@ describe('Jev vs LLM page', () => {
 
   it('switches decision kind via tabs', async () => {
     mockFetch({ 'GET /api/gov/jev/summary': summary(), 'GET /api/gov/jev/shadow': { items: [] } });
-    renderApp(<JevComparisonPage />);
+    renderApp(<JevComparisonPage />, { route: '/jev?view=live' });
     fireEvent.click(await screen.findByRole('tab', { name: 'Prompt injection (0)' }));
     expect(await screen.findByText('No prompt injection comparisons yet')).toBeInTheDocument();
+    expect(screen.getByTestId('jev-empty-hint')).toHaveTextContent(/governance hooks/);
   });
 
   it('shows the six Fleet kinds as a grouped tab set with descriptions', async () => {
@@ -154,7 +157,7 @@ describe('Jev vs LLM page', () => {
       'GET /api/gov/jev/summary': summary({ kinds: [judgeKind(), fleetKind] }),
       'GET /api/gov/jev/shadow': { items: [record({ kind: 'fleet_intent', baseline: { provider: 'rules', verdict: 'in_scope' }, jev: { model: 'jev-1.13.0', verdict: 'out_of_scope', latencyMs: 30, signals: {} } })] },
     });
-    renderApp(<JevComparisonPage />);
+    renderApp(<JevComparisonPage />, { route: '/jev?view=live' });
     await screen.findByRole('tab', { name: 'LLM judge (60)' });
     const labels = [
       'Fleet · Real-time gate (0)', 'Fleet · Intent scope (7)', 'Fleet · Goal alignment (0)',
@@ -180,6 +183,108 @@ describe('Jev vs LLM page', () => {
     mockFetch({ 'GET /api/gov/approvals': [] });
     renderApp(<AppShell><Box>Body</Box></AppShell>, { route: '/overview', path: '*' });
     expect(screen.getByRole('tab', { name: 'Jev vs LLM' })).toHaveAttribute('href', '/jev');
+  });
+});
+
+// ── Offline benchmark view ─────────────────────────────────────────────────
+
+const bvariant = (variant: string, over: Partial<BenchmarkVariant> = {}): BenchmarkVariant => ({
+  variant, provider: variant.startsWith('jev') ? 'jev' : variant, models: [variant.startsWith('jev') ? 'jev-1.13.0' : 'gpt-4.1-mini'],
+  total: 120, n: 120, errors: 0, accuracy: 0.8, macroF1: 0.6, positiveRecall: 1, positivePrecision: 0.72, falseAllowRate: 0, escalationRate: 0,
+  perClass: {}, confusion: { allow: { allow: 43, deny: 1 }, deny: { deny: 52 }, escalate: { allow: 3, deny: 19 } },
+  calibration: { brier: 0.16, ece: 0.14, n: 120 }, latency: { count: 120, p50: 1541, p95: 2156, p99: 2846, mean: 1611 },
+  tokens: { input: 62_000, output: 6_600 }, costUsd: 0.035, costPer1kUsd: 0.3, selfConsistency: null,
+  perTag: { adversarial: { n: 3, correct: 3, accuracy: 1 }, mcp: { n: 2, correct: 1, accuracy: 0.5 } },
+  ...over,
+});
+
+const judgeRun = (): CompareBenchmarkRun => ({
+  id: 'bench-judge', dataset: 'judge', generatedAt: new Date().toISOString(), cases: 120, repeat: 1, positiveLabel: 'deny',
+  providers: [{ id: 'foundry-fast', variants: ['foundry-fast'] }, { id: 'jev', variants: ['jev:strict'] }], skipped: [],
+  variants: [
+    bvariant('foundry-fast', { n: 118, errors: 2 }),
+    bvariant('jev:strict', {
+      accuracy: 0.867, macroF1: 0.791, positiveRecall: 0.962, positivePrecision: 0.909, escalationRate: 0.1,
+      latency: { count: 120, p50: 90, p95: 216, p99: 327, mean: 127 }, costPer1kUsd: 0.0844,
+      perTag: { adversarial: { n: 3, correct: 3, accuracy: 1 }, mcp: { n: 2, correct: 2, accuracy: 1 } },
+    }),
+  ],
+  agreement: { 'foundry-fast': { 'jev:strict': { agree: 99, compared: 118, rate: 0.839 } }, 'jev:strict': { 'foundry-fast': { agree: 99, compared: 118, rate: 0.839 } } },
+  headline: { jev: 'jev:strict', baseline: 'foundry-fast', accuracyDelta: 0.062, positiveRecallDelta: -0.038, falseAllowDelta: 0, p95Speedup: 10, costRatio: 0.285 },
+  sweep: { base: 'strict', constraintMet: false, minPositiveRecall: 1, minPositiveRecallSource: 'foundry-fast deny recall', best: { params: { deny: 0.9, review: 0.4 }, accuracy: 0.883, macroF1: 0.817, positiveRecall: 0.962, falseAllowRate: 0, escalationRate: 0.1 }, points: 87 },
+  misses: [
+    { id: 'coding-deny-mcp-finance', expected: 'deny', tags: ['mcp'], jev: { verdict: 'escalate', confidence: 0.52 }, baseline: { verdict: 'deny' }, jevCorrect: false, baselineCorrect: true },
+    { id: 'ambiguous-subagent', expected: 'escalate', tags: [], jev: { verdict: 'allow', confidence: 0.64 }, baseline: { verdict: 'deny' }, jevCorrect: false, baselineCorrect: false },
+    { id: 'coding-allow-read-src', expected: 'allow', tags: [], jev: { verdict: 'allow' }, baseline: { error: 'timed out' }, jevCorrect: true, baselineCorrect: false },
+  ],
+});
+
+const triageRun = (): TriageBenchmarkRun => ({
+  id: 'bench-triage.json', dataset: 'triage', generatedAt: new Date().toISOString(), model: 'jev-1.13.0', questionsVersion: 'guardian-triage-v1',
+  metrics: { cases: 40, errors: 0, severityExact: 0.9, severityWithinOne: 1, incidentTypeAccuracy: 0.875, investigatePrecision: 1, investigateRecall: 1, latencyP50Ms: 90, latencyP95Ms: 225, avgInputTokens: 1782 },
+  misses: [{ id: 'taint-npm-test', expected: { severity: 'low', incident_type: 'benign_burst', investigate: false }, got: { severity: 'medium', incident_type: 'benign_burst', investigate: false } }],
+});
+
+const benchmarks = (over: Partial<JevBenchmarks> = {}): JevBenchmarks => ({
+  available: true,
+  runs: [{ id: 'bench-judge', dataset: 'judge', generatedAt: new Date().toISOString() }, { id: 'bench-triage.json', dataset: 'triage', generatedAt: new Date().toISOString() }],
+  judge: judgeRun(), triage: triageRun(), ...over,
+});
+
+describe('Jev vs LLM page — offline benchmark', () => {
+  it('is the default view and shows the head-to-head numbers', async () => {
+    mockFetch({ 'GET /api/gov/jev/summary': summary({ enabled: false, kinds: [] }), 'GET /api/gov/jev/benchmarks': benchmarks() });
+    renderApp(<JevComparisonPage />);
+    expect(await screen.findByTestId('jev-benchmarks')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Offline benchmark/, pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Judge (120)', selected: true })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Accuracy: Jev 86.7%, Foundry fast 80.0%, +6.7 pp' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /^p95 latency: Jev 216ms, Foundry fast 2\.2s, 10\.0× faster$/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /^Cost \/ 1k decisions: Jev .*3\.6× cheaper$/ })).toBeInTheDocument();
+    expect(screen.getByTestId('bench-gate')).toHaveTextContent(/safety gate not met/);
+    expect(screen.getByTestId('bench-sweep')).toHaveTextContent('Recall floor not met');
+    expect(await screen.findByTestId('jev-live-off')).toBeInTheDocument();
+    expect(calls.some(u => u.startsWith('/api/gov/jev/shadow'))).toBe(false);
+
+    const board = screen.getByRole('table', { name: 'Provider comparison' });
+    expect(within(board).getByRole('rowheader', { name: /Jev · strict/ })).toBeInTheDocument();
+    expect(within(board).getByText('(2 err)')).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: /Jev · strict confusion matrix/ })).toBeInTheDocument();
+  });
+
+  it('filters missed cases', async () => {
+    mockFetch({ 'GET /api/gov/jev/summary': summary(), 'GET /api/gov/jev/benchmarks': benchmarks() });
+    renderApp(<JevComparisonPage />);
+    const misses = await screen.findByRole('table', { name: 'Missed cases' });
+    expect(within(misses).getByText('coding-deny-mcp-finance')).toBeInTheDocument();
+    expect(within(misses).queryByText('coding-allow-read-src')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Foundry fast wrong (2)' }));
+    const next = screen.getByRole('table', { name: 'Missed cases' });
+    expect(within(next).getByText('coding-allow-read-src')).toBeInTheDocument();
+    expect(within(next).queryByText('coding-deny-mcp-finance')).not.toBeInTheDocument();
+  });
+
+  it('shows Guardian triage metrics', async () => {
+    mockFetch({ 'GET /api/gov/jev/summary': summary(), 'GET /api/gov/jev/benchmarks': benchmarks() });
+    renderApp(<JevComparisonPage />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Guardian triage (40)' }));
+    expect(await screen.findByLabelText('Severity exact 90.0%')).toBeInTheDocument();
+    expect(screen.getByLabelText('Investigate recall 100.0%')).toBeInTheDocument();
+    expect(within(screen.getByTestId('bench-triage-misses')).getByText('low → medium')).toBeInTheDocument();
+  });
+
+  it('explains how to run the benchmark when there are no results', async () => {
+    mockFetch({ 'GET /api/gov/jev/summary': summary(), 'GET /api/gov/jev/benchmarks': { available: true, runs: [] } });
+    renderApp(<JevComparisonPage />);
+    expect(await screen.findByText('No benchmark results yet')).toBeInTheDocument();
+    expect(screen.getByText(/npm run eval:compare/)).toBeInTheDocument();
+  });
+
+  it('switches to the live shadow view', async () => {
+    mockFetch({ 'GET /api/gov/jev/summary': summary(), 'GET /api/gov/jev/benchmarks': benchmarks(), 'GET /api/gov/jev/shadow': { items: [] } });
+    renderApp(<JevComparisonPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Live shadow/ }));
+    expect(await screen.findByLabelText('Agreement 92.0%')).toBeInTheDocument();
   });
 });
 

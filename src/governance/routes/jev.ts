@@ -4,6 +4,8 @@
  *
  *   GET  /api/gov/jev/summary  — per-kind comparison summary for a window         (Viewer)
  *   GET  /api/gov/jev/shadow   — cursor-paged shadow records, newest first         (Viewer)
+ *   GET  /api/gov/jev/benchmarks — latest offline eval-compare / eval_triage results (Viewer)
+ *                                  ?judge=&injection=&triage= select a run by id
  *   POST /api/gov/jev/shadow   — append a guardian_triage (intelligence) or fleet_* (AgentMon Fleet)
  *                                record                                            (PolicyAdmin | Agent)
  *                                id/createdAt are server-assigned; judge/injection/session_score → 400
@@ -16,6 +18,7 @@ import { z } from 'zod';
 import { requireRole } from '../auth';
 import { govStore } from '../store';
 import { JEV_FLEET_SHADOW_KINDS, JEV_SHADOW_KINDS } from '../jev/stats';
+import { loadBenchmarks } from '../jev/benchmarks';
 import { buildShadowSummary } from '../jev/summary';
 import type { JevShadowInput, JevShadowKind, JevShadowRecord } from '../jev/types';
 
@@ -132,6 +135,14 @@ router.get('/jev/shadow', requireRole('Viewer'), async (req, res) => {
   if (!q.success) { res.status(400).json({ error: 'invalid query', issues: issues(q.error) }); return; }
   const { agree, ...rest } = q.data;
   res.json(await govStore().queryJevShadow({ ...rest, agree: agree == null ? undefined : agree === 'true' }));
+});
+
+router.get('/jev/benchmarks', requireRole('Viewer'), async (req, res) => {
+  const pickId = (v: unknown) => {
+    const s = str(v);
+    return s && s.length <= 200 && /^[\w.-]+$/.test(s) ? s : undefined;
+  };
+  res.json(await loadBenchmarks({ judge: pickId(req.query.judge), injection: pickId(req.query.injection), triage: pickId(req.query.triage) }));
 });
 
 // Same roles the intelligence service uses to write incidents and the Fleet uses for

@@ -1,10 +1,12 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import {
   Alert, Box, Button, Chip, Collapse, IconButton, Link as MuiLink, Skeleton, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow,
-  Tabs, Tooltip, Typography, alpha, useTheme,
+  Tabs, ToggleButton, ToggleButtonGroup, Tooltip, Typography, alpha, useTheme,
 } from '@mui/material';
 import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
 import BoltRoundedIcon from '@mui/icons-material/BoltRounded';
+import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
+import SensorsRoundedIcon from '@mui/icons-material/SensorsRounded';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import {
@@ -22,6 +24,7 @@ import {
 import { useRangeKey } from '../../lib/range';
 import { fmtDuration, fmtNum, shortId } from '../../lib/format';
 import { ConversationDrawer } from '../conversation/ConversationDrawer';
+import { JevBenchmarkPanel } from './JevBenchmarkPanel';
 
 const dur = (ms: number) => fmtDuration(ms) || '0ms';
 const isKind = (v: string | null): v is JevShadowKind => !!v && (JEV_KINDS as string[]).includes(v);
@@ -321,9 +324,26 @@ function Disagreements({ kind, range, convHref }: { kind: JevShadowKind; range: 
 
 // ── Per-kind panel & queue ─────────────────────────────────────────────────
 
+/** Why a live tab can be empty: what has to send traffic before Jev has anything to shadow. */
+function emptyHint(kind: JevShadowKind): ReactNode {
+  if (kind === 'judge' || kind === 'injection') {
+    return (
+      <>
+        Live {kind === 'judge' ? 'judge' : 'injection'} comparisons only happen when agents' tool calls go through governance hooks. Passive log import is not
+        enough. Install them with <code>.\install.ps1 -CopilotHooks</code> (Copilot CLI) or <code>-VSCodeHooks</code>, or use the MCP gateway / SDK
+        {kind === 'judge' ? <>. With <code>JEV_SHADOW_SCOPE=judge</code>, only calls escalated to the LLM judge are compared; <code>governed</code> compares every governed call.</> : '.'}
+      </>
+    );
+  }
+  if (kind === 'guardian_triage') return <>Needs the intelligence service running with <code>TYPESAFE_API_KEY</code>, and Guardian triggers (open incidents).</>;
+  if (kind === 'session_score') return <>Session scoring runs in the background every <code>JEV_SHADOW_SESSION_INTERVAL_MS</code> over recently active sessions.</>;
+  if (kind === 'fleet_realtime') return <>Needs Copilot Studio webhook traffic to <code>agentmon-fleet hooks</code> (started with <code>TYPESAFE_API_KEY</code> set).</>;
+  return <>Needs AgentMon Fleet detection cycles (<code>agentmon-fleet</code>) running with <code>TYPESAFE_API_KEY</code> and a <code>FLEET_MONITOR_TOKEN</code> that can post to this server.</>;
+}
+
 function KindPanel({ kind, k, range, convHref }: { kind: JevShadowKind; k?: JevKindSummary; range: string; convHref: (id: string) => string }) {
   // "Fleet · Intent scope" → "Fleet intent scope" for sentence use; core labels are simply lower-cased.
-  const noun = JEV_KIND_LABEL[kind].replace(' · ', ' ').toLowerCase().replace(/^fleet/, 'Fleet');
+  const noun = JEV_KIND_LABEL[kind].replace(' · ', ' ').toLowerCase().replace(/^fleet/, 'Fleet').replace(/\bllm\b/, 'LLM');
   const description = (
     <Typography variant="body2" sx={{ color: 'text.secondary' }} data-testid="jev-kind-description">
       {JEV_KIND_DESCRIPTION[kind]}
@@ -339,6 +359,7 @@ function KindPanel({ kind, k, range, convHref }: { kind: JevShadowKind; k?: JevK
           title={`No ${noun} comparisons yet`}
           body={`Jev hasn't shadowed any ${JEV_KIND_BASELINE[kind]} decisions in this period.`}
         />
+        <Alert severity="info" variant="outlined" data-testid="jev-empty-hint">{emptyHint(kind)}</Alert>
       </Stack>
     );
   }
@@ -398,6 +419,7 @@ export function JevComparisonPage() {
   const convHref = (id: string) => { const n = new URLSearchParams(params); n.set('c', id); return `?${n.toString()}`; };
   const byKind = new Map((s?.kinds ?? []).map(k => [k.kind, k]));
   const hasData = (s?.kinds ?? []).some(k => k.total > 0);
+  const view: 'benchmark' | 'live' = params.get('view') === 'live' ? 'live' : 'benchmark';
 
   if (summary.isError && summary.error instanceof ApiError && summary.error.status === 404) {
     return (
@@ -411,8 +433,15 @@ export function JevComparisonPage() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-        <TimeRangePicker />
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+        <ToggleButtonGroup
+          size="small" exclusive value={view} aria-label="Comparison source"
+          onChange={(_, v: 'benchmark' | 'live' | null) => v && setParam('view', v === 'benchmark' ? null : v)}
+        >
+          <ToggleButton value="benchmark" data-testid="jev-view-benchmark"><ScienceRoundedIcon fontSize="small" sx={{ mr: 0.75 }} />Offline benchmark</ToggleButton>
+          <ToggleButton value="live" data-testid="jev-view-live"><SensorsRoundedIcon fontSize="small" sx={{ mr: 0.75 }} />Live shadow</ToggleButton>
+        </ToggleButtonGroup>
+        {view === 'live' && <TimeRangePicker />}
         <Box sx={{ flex: 1 }} />
         {s?.enabled && (
           <Tooltip title="Jev runs next to the real decision makers and never changes a verdict">
@@ -424,11 +453,20 @@ export function JevComparisonPage() {
       <Box>
         <Typography variant="h5" component="h2">Jev vs LLM</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-          Agreement, latency and cost of TypeSafe Jev in shadow mode against the LLM judge, Prompt Shields, Guardian and session severity.
+          {view === 'benchmark'
+            ? 'Accuracy, safety, latency and cost of TypeSafe Jev against the Foundry LLM judge, Prompt Shields and labelled triage cases, from the latest offline benchmark.'
+            : 'Agreement, latency and cost of TypeSafe Jev in shadow mode against the LLM judge, Prompt Shields, Guardian and session severity on live traffic.'}
         </Typography>
       </Box>
 
-      {summary.isError ? <QueryError error={summary.error} onRetry={() => void summary.refetch()} />
+      {view === 'benchmark' ? (
+        <Stack spacing={2}>
+          {s && (s.enabled
+            ? (hasData ? <Alert severity="info" variant="outlined">Live shadow data is available — switch to <b>Live shadow</b> to compare Jev on real traffic.</Alert> : null)
+            : <Alert severity="info" variant="outlined" data-testid="jev-live-off">Live shadow mode is off on this server. Set <code>TYPESAFE_API_KEY</code> and restart the monitor to compare Jev on real traffic.</Alert>)}
+          <JevBenchmarkPanel />
+        </Stack>
+      ) : summary.isError ? <QueryError error={summary.error} onRetry={() => void summary.refetch()} />
         : !s ? (
           <Stack spacing={1.5} aria-busy="true" aria-label="Loading comparison">
             <Skeleton variant="rounded" height={48} />

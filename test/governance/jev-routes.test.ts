@@ -79,6 +79,17 @@ async function getJson(p: string, as: Principal = viewer) {
 }
 
 describe('Jev shadow admin routes', () => {
+  it('GET /jev/benchmarks is readable by Viewers and reports a missing results folder', async () => {
+    const prev = process.env.JEV_EVAL_RESULTS_DIR;
+    process.env.JEV_EVAL_RESULTS_DIR = path.join(dir, `no-results-${process.pid}`);
+    try {
+      const r = await getJson('/api/gov/jev/benchmarks?judge=../../etc');
+      expect(r.status).toBe(200);
+      expect(r.json).toEqual({ available: false, runs: [] });
+    } finally {
+      if (prev === undefined) delete process.env.JEV_EVAL_RESULTS_DIR; else process.env.JEV_EVAL_RESULTS_DIR = prev;
+    }
+  });
   it('POST requires PolicyAdmin or Agent', async () => {
     const res = await post(body(), viewer);
     expect(res.status).toBe(403);
