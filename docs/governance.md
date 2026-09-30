@@ -63,6 +63,14 @@ While simulation mode is on:
   `effectiveVerdict` and `wouldDeny`, and the decision is tagged `simulated: true`.
 - Human approvals are not requested. The decision is recorded as `escalate` with stage `human`.
 - Admin actions (checkpoint `admin`, surface `monitor`) are never simulated.
+- **Zero added latency:** because the answer is always neutral, the `/hooks/*` endpoints reply
+  immediately. Rules, the LLM judge and the Jev shadow then run in the background. The only overhead
+  per hook event is starting the forwarder process, about 0.4 s for PowerShell.
+- **Duplicates are merged:** hosts that read every `~/.copilot/hooks/*.json` fire both hook files for a
+  single tool call. For example, the Copilot CLI agent host sends one event as `powershell` and another
+  as `Bash`, and it sends both `preToolUse` and `permissionRequest`. In simulation, events with the same
+  session, checkpoint and action (the command or args, or the prompt text) within 15 s are evaluated
+  once.
 - The header shows a **Simulation** chip, and simulated decisions carry a flask icon.
 - Only non-agent `PolicyAdmin` principals can change the switch. Every change is written to the audit
   log.
@@ -79,6 +87,11 @@ API:
 - `POST /api/gov/hooks/copilot/uninstall {targets?}`
 
 Hooks take effect in new agent sessions.
+
+> **Windows note:** the Copilot CLI agent host also loads the VS Code hook file and runs its `command`
+> entry. Copilot CLI fails closed when a `preToolUse` command errors, so on Windows that entry must be
+> the PowerShell forwarder, not `sh`. Both the dashboard installer and `install.ps1 -VSCodeHooks` write
+> it that way, with `windows`, `linux` and `osx` overrides for VS Code.
 
 ## Enforcement points
 

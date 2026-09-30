@@ -20,6 +20,7 @@ import { govStore } from '../store';
 import { JEV_FLEET_SHADOW_KINDS, JEV_SHADOW_KINDS } from '../jev/stats';
 import { loadBenchmarks } from '../jev/benchmarks';
 import { buildShadowSummary } from '../jev/summary';
+import { emitShadow } from '../jev/events';
 import type { JevShadowInput, JevShadowKind, JevShadowRecord } from '../jev/types';
 
 const router = Router();
@@ -154,7 +155,9 @@ router.post('/jev/shadow', requireRole('PolicyAdmin', 'Agent'), async (req, res)
   const input: JevShadowInput = parsed.data;
   // Spread first, then override: client-supplied id/createdAt never reach the store.
   const record: JevShadowRecord = { ...input, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
-  res.status(201).json(await govStore().appendJevShadow(record));
+  const saved = await govStore().appendJevShadow(record);
+  emitShadow(saved);
+  res.status(201).json(saved);
 });
 
 export default router;

@@ -43,7 +43,8 @@ type GovMessage =
   | { type: 'gov.posture'; findingId?: string; endpointId?: string }
   | { type: 'gov.incident'; incident: Incident }
   | { type: 'gov.fleet.alerts'; alerts: FleetAlert[] }
-  | { type: 'gov.simulation'; simulation?: { enabled: boolean } };
+  | { type: 'gov.simulation'; simulation?: { enabled: boolean } }
+  | { type: 'gov.jev'; shadow?: { id: string; kind: string } };
 
 /** Append a live decision to the per-session cache that drives conversation timeline badges. */
 export function applyGovDecision(qc: QueryClient, d: Decision): void {
@@ -80,6 +81,9 @@ export function handleGovMessage(qc: QueryClient, msg: GovMessage): string[] {
       return ['fleet'];
     case 'gov.simulation':
       return ['harness', 'config'];
+    case 'gov.jev':
+      // Summary, disagreement lists and per-session drawer panels all live under ['gov', 'jev'].
+      return ['jev'];
   }
   return [];
 }

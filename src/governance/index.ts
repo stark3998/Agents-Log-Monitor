@@ -89,6 +89,7 @@ export async function initGovernance(app: Express): Promise<void> {
   govBus.on('incident.updated', i => broadcast({ type: 'gov.incident', incident: i }));
   govBus.on('fleet.alerts', alerts => broadcast({ type: 'gov.fleet.alerts', alerts }));
   govBus.on('simulation', s => broadcast({ type: 'gov.simulation', simulation: s }));
+  govBus.on('jev.shadow', r => broadcast({ type: 'gov.jev', shadow: r }));
 
   app.use('/v1', authenticate, decideRouter);
   app.use('/hooks', authenticate, requireRole('Agent'), hooksRouter);

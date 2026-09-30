@@ -204,4 +204,32 @@ describe('governance hook router', () => {
 
     expect(decideMock).not.toHaveBeenCalled();
   });
+
+  it('answers immediately in simulation mode and evaluates in the background, once per tool call', async () => {
+    const { setSimulationStateForTests } = await import('../../src/governance/simulation');
+    setSimulationStateForTests({ enabled: true });
+    let finish!: (d: Decision) => void;
+    decideMock.mockImplementationOnce(() => new Promise<Decision>(resolve => { finish = resolve; }));
+    decideMock.mockResolvedValue(decision({ simulated: true, mode: 'observe' }));
+    try {
+      await withServer(async baseUrl => {
+        const post = (surface: string, payload: unknown) => fetch(`${baseUrl}/hooks/${surface}`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+        });
+        // The Copilot CLI agent host runs both hook files: camelCase + `powershell` and PascalCase + `Bash`.
+        const cli = await post('copilot-cli', { hookEventName: 'preToolUse', sessionId: 's-sim', toolName: 'powershell', toolArgs: JSON.stringify({ command: 'rm -rf build' }) });
+        await expect(cli.json()).resolves.toEqual({});
+        const vs = await post('vscode', { hook_event_name: 'PreToolUse', session_id: 's-sim', tool_use_id: 'tu-sim-1', tool_name: 'Bash', tool_input: { command: 'rm -rf build' } });
+        await expect(vs.json()).resolves.toEqual({});
+        // A different command in the same session is evaluated.
+        await (await post('vscode', { hook_event_name: 'PreToolUse', session_id: 's-sim', tool_use_id: 'tu-sim-2', tool_name: 'Bash', tool_input: { command: 'npm test' } })).json();
+      });
+      expect(decideMock).toHaveBeenCalledTimes(2);
+      expect(decideMock).toHaveBeenNthCalledWith(1, expect.objectContaining({ checkpoint: 'pre_tool', sessionId: 's-sim' }), expect.objectContaining({ blocking: false }));
+      finish(decision({ verdict: 'allow', effectiveVerdict: 'deny', wouldDeny: true, mode: 'observe', simulated: true }));
+    } finally {
+      setSimulationStateForTests(null);
+      decideMock.mockReset();
+    }
+  });
 });

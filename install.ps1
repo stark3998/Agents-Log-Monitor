@@ -146,13 +146,19 @@ function New-CopilotHookConfig([string]$Surface, [bool]$NativeVSCode) {
   if ($ControlPlaneUrl) { $env["AGENT_MONITOR_URL"] = $ControlPlaneUrl.TrimEnd('/') }
 
   if ($NativeVSCode) {
+    # `command` is what other hosts reading ~/.copilot/hooks (the Copilot CLI agent host) run, and a
+    # failing preToolUse command is fail-closed there, so on Windows it must be the PowerShell forwarder.
+    $winCommand = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$forwardPs1`" -Port $Port -TimeoutSec $deadline -Surface $Surface"
+    $shCommand = "sh '$forwardSh' --port $Port --timeout $deadline --surface $Surface"
     $hooks = [ordered]@{}
     foreach ($eventName in $VSCodeEvents) {
       $timeout = if ($eventName -eq "PreToolUse" -or $eventName -eq "UserPromptSubmit") { $HookTimeoutSec } else { 5 }
       $hooks[$eventName] = @([ordered]@{
         type = "command"
-        command = "sh '$forwardSh' --port $Port --timeout $deadline --surface $Surface"
-        windows = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$forwardPs1`" -Port $Port -TimeoutSec $deadline -Surface $Surface"
+        command = $winCommand
+        windows = $winCommand
+        linux = $shCommand
+        osx = $shCommand
         timeout = $timeout
         env = $env
       })

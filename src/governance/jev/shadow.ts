@@ -9,6 +9,7 @@ import type { JudgeInput, ShieldResult } from '../contracts';
 import type { DataPolicy, Decision, JudgeVerdict, Verdict } from '../types';
 import { govStore } from '../store';
 import { jevConfig } from './config';
+import { emitShadow } from './events';
 import { assessInjection, evaluateJudgeWithJev } from './judge';
 import { shadowQueue } from './runtime';
 import { EGRESS_REDACTION } from './state';
@@ -75,7 +76,10 @@ function judgeSpace(v: Verdict): 'allow' | 'deny' | 'escalate' {
 }
 
 async function save(record: JevShadowRecord): Promise<void> {
-  try { await govStore().appendJevShadow(record); } catch { /* shadow persistence is best-effort */ }
+  try {
+    await govStore().appendJevShadow(record);
+    emitShadow(record);
+  } catch { /* shadow persistence is best-effort */ }
 }
 
 function decisionRefs(d: Decision): Pick<JevShadowRecord, 'decisionId' | 'requestId' | 'sessionId' | 'agentId' | 'laneId' | 'checkpoint' | 'toolName'> {

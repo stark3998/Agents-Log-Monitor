@@ -19,6 +19,7 @@ export interface GovEvents {
   'incident.updated': (i: Incident) => void;
   'fleet.alerts': (alerts: FleetAlert[]) => void;
   'simulation': (s: { enabled: boolean; source: 'env' | 'setting'; updatedAt?: string; updatedBy?: string }) => void;
+  'jev.shadow': (r: { id: string; kind: string; sessionId?: string; decisionId?: string; agree?: boolean }) => void;
 }
 
 class TypedBus extends EventEmitter {

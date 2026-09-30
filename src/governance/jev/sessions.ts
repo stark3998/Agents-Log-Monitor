@@ -19,6 +19,7 @@ import { SEVERITY_RANK, type Severity } from '../../analytics/severity';
 import { listConversations, type ConversationRow } from '../../queries';
 import { govStore } from '../store';
 import { jevConfig } from './config';
+import { emitShadow } from './events';
 import { assessSession, type SessionAssessment } from './judge';
 import { shadowQueue } from './runtime';
 import type { SessionDigest } from './state';
@@ -315,7 +316,8 @@ async function scoreOneSession(sessionId: string, asOf: string): Promise<boolean
   }
   // Stamped with the run's upper time bound (not completion time) so activity arriving while the
   // Jev call is in flight still triggers a rescore on the next run.
-  await govStore().appendJevShadow(record(sessionId, snap.heuristic, asOf, assessment, failure, Date.now() - started));
+  const saved = await govStore().appendJevShadow(record(sessionId, snap.heuristic, asOf, assessment, failure, Date.now() - started));
+  emitShadow(saved);
   if (snap.lastActivityAt) scored.set(sessionId, snap.lastActivityAt);
   return true;
 }

@@ -75,6 +75,10 @@ describe('hook config builder', () => {
     const vs = buildHookConfig('vscode', { failMode: 'closed', port: 4400 }) as any;
     expect(vs.version).toBeUndefined();
     expect(vs.hooks.PreToolUse[0]).toMatchObject({ type: 'command', timeout: 120, env: { AGENT_GOVERNANCE_FAIL_MODE: 'closed', AGENT_GOVERNANCE_SURFACE: 'vscode' } });
+    // Other hosts (the Copilot CLI agent host) run `command` and fail closed if it errors: it must suit this OS.
+    expect(vs.hooks.PreToolUse[0].command).toBe(process.platform === 'win32' ? vs.hooks.PreToolUse[0].windows : vs.hooks.PreToolUse[0].linux);
+    expect(vs.hooks.PreToolUse[0].windows).toMatch(/^powershell .*copilot-hook-forward\.ps1" -Port 4400 /);
+    expect(vs.hooks.PreToolUse[0].osx).toMatch(/^sh '.*copilot-hook-forward\.sh' --port 4400 /);
     expect(vs.hooks.Stop[0].timeout).toBe(5);
   });
 });

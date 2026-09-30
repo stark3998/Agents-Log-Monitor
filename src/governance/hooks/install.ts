@@ -85,10 +85,14 @@ export function buildHookConfig(target: HookTarget, opts: HookInstallOptions = {
   const shCmd = `sh '${bash}' --port ${port} --timeout ${deadline} --surface ${target}`;
 
   if (target === 'vscode') {
+    // `command` is what other hosts reading ~/.copilot/hooks (e.g. the Copilot CLI agent host) run, and
+    // a failing preToolUse command is fail-closed there, so it must work on this OS; VS Code also
+    // honours the per-OS overrides.
+    const command = process.platform === 'win32' ? psCmd : shCmd;
     const hooks: Record<string, unknown[]> = {};
     for (const ev of VSCODE_EVENTS) {
       const timeout = ev === 'PreToolUse' || ev === 'UserPromptSubmit' ? HOOK_TIMEOUT_SEC : 5;
-      hooks[ev] = [{ type: 'command', command: shCmd, windows: psCmd, timeout, env }];
+      hooks[ev] = [{ type: 'command', command, windows: psCmd, linux: shCmd, osx: shCmd, timeout, env }];
     }
     return { hooks };
   }
