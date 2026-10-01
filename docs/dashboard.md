@@ -7,6 +7,13 @@ PolicyAdmin). See [security-auth.md](security-auth.md).
 
 Live updates arrive over the `/live` WebSocket. When it's unavailable, pages fall back to polling.
 
+Pages are grouped in a side navigation: **Monitor** (Overview, Conversations, Enforcements, Incidents), **Govern**
+(Governance, Approvals, Policies, Lanes, Agents), **Fleet & posture** (Fleet, Posture, Jev vs LLM) and **Help** (Ask,
+Docs). The collapse button at the bottom shrinks it to icons (remembered per browser); on narrow screens it opens from the
+menu button. Every page starts with a header that shows its section, what the page shows and what it's for. Hovering a
+navigation item shows the same description. The navigation, descriptions and purposes live in
+[`web/src/lib/nav.tsx`](../web/src/lib/nav.tsx).
+
 ## Contents
 
 - [Monitoring pages](#monitoring-pages)

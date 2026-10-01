@@ -182,7 +182,7 @@ describe('Jev vs LLM page', () => {
   it('is linked from the navigation', () => {
     mockFetch({ 'GET /api/gov/approvals': [] });
     renderApp(<AppShell><Box>Body</Box></AppShell>, { route: '/overview', path: '*' });
-    expect(screen.getByRole('tab', { name: 'Jev vs LLM' })).toHaveAttribute('href', '/jev');
+    expect(within(screen.getByRole('navigation', { name: 'Sections' })).getByRole('link', { name: 'Jev vs LLM' })).toHaveAttribute('href', '/jev');
   });
 });
 

@@ -15,6 +15,7 @@ import { fmtDuration, fmtNum } from '../../lib/format';
 import { fmtCountdown, useNow } from '../../lib/useNow';
 import { DecisionTrend } from './DecisionTrend';
 import { TestHarnessCard } from '../../components/gov/TestHarnessCard';
+import { PageHeader } from '../../components/PageHeader';
 
 export function GovernanceOverviewPage() {
   const [range] = useRangeKey();
@@ -41,15 +42,14 @@ export function GovernanceOverviewPage() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-        <TimeRangePicker />
-        <Box sx={{ flex: 1 }} />
-        <Button variant="outlined" size="small" component={RouterLink} to="/lanes">Manage lanes</Button>
-      </Stack>
+      <PageHeader
+        actions={<>
+          <TimeRangePicker />
+          <Button variant="outlined" size="small" component={RouterLink} to="/lanes">Manage lanes</Button>
+        </>}
+      />
 
-      <Typography variant="h5" component="h2">Governance overview</Typography>
-
-      {overview.isError ? <QueryError error={overview.error} onRetry={() => void overview.refetch()} /> : (
+      {overview.isError ?  <QueryError error={overview.error} onRetry={() => void overview.refetch()} /> : (
         <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
           <StatCard index={0} label="Allowed" value={o?.decisions.allow} onClick={go('/enforcements', 'verdict=allow')} />
           <StatCard index={1} label="Denied" value={o?.decisions.deny} onClick={go('/enforcements', 'verdict=deny')} info="Tool calls blocked by a lane rule, the judge, a human or a kill switch" />

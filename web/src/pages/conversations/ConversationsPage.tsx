@@ -15,6 +15,8 @@ import { fmtNum } from '../../lib/format';
 import { FilterBar } from './FilterBar';
 import { conversationColumns } from './columns';
 import { ConversationDrawer } from '../conversation/ConversationDrawer';
+import { PageHeader } from '../../components/PageHeader';
+import { FILL_HEIGHT } from '../../components/layout';
 
 const VIS_KEY = 'am-conv-columns';
 
@@ -58,7 +60,8 @@ export function ConversationsPage() {
   const bounds = rangeBounds(range);
 
   return (
-    <Stack spacing={2} sx={{ height: 'calc(100vh - 140px)', minHeight: 480 }}>
+    <Stack spacing={2} sx={{ height: FILL_HEIGHT, minHeight: 560 }}>
+      <PageHeader />
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
         <FilterBar filters={filters} rows={all} onChange={(f, v) => setFilter(f, v)} />
         <TimeRangePicker />

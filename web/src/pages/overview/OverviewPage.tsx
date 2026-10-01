@@ -1,4 +1,4 @@
-import { Box, Stack, Typography } from '@mui/material';
+import { Box, Stack } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { exportUrl, useAgents, useConnections, useOverview } from '../../api/client';
 import { ExportMenu, SectionCard, TimeRangePicker } from '../../components/Common';
@@ -8,6 +8,7 @@ import { KpiCard, type KpiDef } from './KpiCard';
 import { TopAgentsTable } from './TopAgentsTable';
 import { ConnectionsHeatmap } from './ConnectionsHeatmap';
 import { ActivityTrend } from './ActivityTrend';
+import { PageHeader } from '../../components/PageHeader';
 
 export function OverviewPage() {
   const [range] = useRangeKey();
@@ -30,19 +31,18 @@ export function OverviewPage() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-        <TimeRangePicker />
-        <Box sx={{ flex: 1 }} />
-        <ExportMenu
-          label="Export activity logs"
-          options={[
-            { label: 'CSV', hint: 'One row per event, spreadsheet friendly', href: exportUrl('export', { ...bounds, format: 'csv' }) },
-            { label: 'JSON Lines', hint: 'One JSON object per event', href: exportUrl('export', { ...bounds, format: 'jsonl' }) },
-          ]}
-        />
-      </Stack>
-
-      <Typography variant="h5" component="h2">Activity overview</Typography>
+      <PageHeader
+        actions={<>
+          <TimeRangePicker />
+          <ExportMenu
+            label="Export activity logs"
+            options={[
+              { label: 'CSV', hint: 'One row per event, spreadsheet friendly', href: exportUrl('export', { ...bounds, format: 'csv' }) },
+              { label: 'JSON Lines', hint: 'One JSON object per event', href: exportUrl('export', { ...bounds, format: 'jsonl' }) },
+            ]}
+          />
+        </>}
+      />
 
       <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
         {defs.map((d, i) => (

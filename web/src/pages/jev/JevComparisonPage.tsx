@@ -23,6 +23,7 @@ import {
 } from '../../components/gov/JevCommon';
 import { useRangeKey } from '../../lib/range';
 import { fmtDuration, fmtNum, shortId } from '../../lib/format';
+import { PageHeader } from '../../components/PageHeader';
 import { ConversationDrawer } from '../conversation/ConversationDrawer';
 import { JevBenchmarkPanel } from './JevBenchmarkPanel';
 import { TestHarnessCard } from '../../components/gov/TestHarnessCard';
@@ -434,6 +435,11 @@ export function JevComparisonPage() {
 
   return (
     <Stack spacing={2.5}>
+      <PageHeader
+        description={view === 'benchmark'
+          ? 'Accuracy, safety, latency and cost of TypeSafe Jev against the Foundry LLM judge, Prompt Shields and labelled triage cases, from the latest offline benchmark.'
+          : 'Agreement, latency and cost of TypeSafe Jev in shadow mode against the LLM judge, Prompt Shields, Guardian and session severity on live traffic.'}
+      />
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
         <ToggleButtonGroup
           size="small" exclusive value={view} aria-label="Comparison source"
@@ -450,15 +456,6 @@ export function JevComparisonPage() {
           </Tooltip>
         )}
       </Stack>
-
-      <Box>
-        <Typography variant="h5" component="h2">Jev vs LLM</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-          {view === 'benchmark'
-            ? 'Accuracy, safety, latency and cost of TypeSafe Jev against the Foundry LLM judge, Prompt Shields and labelled triage cases, from the latest offline benchmark.'
-            : 'Agreement, latency and cost of TypeSafe Jev in shadow mode against the LLM judge, Prompt Shields, Guardian and session severity on live traffic.'}
-        </Typography>
-      </Box>
 
       {view === 'benchmark' ? (
         <Stack spacing={2}>

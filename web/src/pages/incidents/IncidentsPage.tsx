@@ -10,6 +10,8 @@ import { QueryError } from '../../components/gov/GovCommon';
 import { IncidentStateChip } from '../../components/gov/GovChips';
 import { Ellipsis, RelativeTime } from '../../components/Primitives';
 import { fmtNum } from '../../lib/format';
+import { PageHeader } from '../../components/PageHeader';
+import { FILL_HEIGHT } from '../../components/layout';
 
 const OPEN_STATES = ['open', 'investigating', 'contained'];
 
@@ -36,9 +38,9 @@ export function IncidentsPage() {
   ];
 
   return (
-    <Stack spacing={2} sx={{ height: 'calc(100vh - 150px)', minHeight: 480 }}>
+    <Stack spacing={2} sx={{ height: FILL_HEIGHT, minHeight: 600 }}>
+      <PageHeader />
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-        <Typography variant="h5" component="h2">Incidents</Typography>
         <ToggleButtonGroup size="small" exclusive value={show} aria-label="Show incidents"
           onChange={(_, v) => v && setParams(p => { const n = new URLSearchParams(p); if (v === 'all') n.set('show', 'all'); else n.delete('show'); return n; }, { replace: true })}>
           <ToggleButton value="open">Open · {fmtNum(openCount)}</ToggleButton>

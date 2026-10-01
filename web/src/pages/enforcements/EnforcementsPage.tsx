@@ -19,6 +19,8 @@ import { rangeBounds, useRangeKey } from '../../lib/range';
 import { fmtDuration, fmtNum } from '../../lib/format';
 import { ConversationDrawer } from '../conversation/ConversationDrawer';
 import { LegacyEnforcements } from './LegacyEnforcements';
+import { PageHeader } from '../../components/PageHeader';
+import { FILL_HEIGHT } from '../../components/layout';
 
 const VERDICTS: (Verdict | '')[] = ['', 'allow', 'deny', 'ask', 'escalate'];
 const VERDICT_OPTION: Record<string, string> = { '': 'All verdicts', allow: 'Allowed', deny: 'Denied', ask: 'Asked user', escalate: 'Escalated' };
@@ -167,7 +169,8 @@ export function EnforcementsPage() {
   const [view, setView] = useParam('view');
   const legacy = view === 'events';
   return (
-    <Stack spacing={1.5} sx={{ height: 'calc(100vh - 150px)', minHeight: 520 }}>
+    <Stack spacing={1.5} sx={{ height: FILL_HEIGHT, minHeight: 600 }}>
+      <PageHeader />
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <ToggleButtonGroup size="small" exclusive value={legacy ? 'events' : 'decisions'} onChange={(_, v) => v && setView(v === 'events' ? 'events' : null)} aria-label="Enforcement source">
           <ToggleButton value="decisions">Policy decisions</ToggleButton>

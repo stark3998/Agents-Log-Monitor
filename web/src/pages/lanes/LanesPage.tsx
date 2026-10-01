@@ -10,6 +10,7 @@ import { QueryError } from '../../components/gov/GovCommon';
 import { LaneModeChip, LaneStatusChip } from '../../components/gov/GovChips';
 import { Ellipsis, RelativeTime } from '../../components/Primitives';
 import { summariseLanes } from './laneUtils';
+import { PageHeader } from '../../components/PageHeader';
 
 export function LanesPage() {
   const lanes = useLanes();
@@ -20,13 +21,7 @@ export function LanesPage() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-        <Typography variant="h5" component="h2" sx={{ flex: 1 }}>Lanes</Typography>
-        <Button variant="contained" size="small" startIcon={<AddRoundedIcon />} component={RouterLink} to="/lanes/new">New lane</Button>
-      </Stack>
-      <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 760, mt: '-8px !important' }}>
-        A lane is an agent’s mandate: its purpose, what it should and must never do, deterministic rules, when to ask the LLM judge and when to require a human.
-      </Typography>
+      <PageHeader actions={<Button variant="contained" size="small" startIcon={<AddRoundedIcon />} component={RouterLink} to="/lanes/new">New lane</Button>} />
 
       {proposals.length > 0 && (
         <SectionCard title={`Proposals awaiting review · ${proposals.length}`} subtitle="Drafted by people or the AI lane drafter. Approving a proposal activates it." delay={40}>

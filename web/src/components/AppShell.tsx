@@ -1,17 +1,12 @@
-import type { ReactNode } from 'react';
-import { Box, Button, IconButton, Stack, Tab, Tabs, Tooltip, Typography } from '@mui/material';
+import { useState, type ReactNode } from 'react';
+import { Box, Button, Drawer, IconButton, Stack, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
-import PolicyRoundedIcon from '@mui/icons-material/PolicyRounded';
-import HealthAndSafetyRoundedIcon from '@mui/icons-material/HealthAndSafetyRounded';
-import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
-import RadarRoundedIcon from '@mui/icons-material/RadarRounded';
-import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
+import { useLocation } from 'react-router-dom';
 import { useThemeMode } from '../theme/ThemeModeProvider';
 import { useLiveStatus } from '../api/live';
-import { usePendingApprovals } from '../api/governance';
 import { useAuth } from '../auth/context';
 import { principalHasRole } from '../api/governance';
 import { LiveDot } from './Primitives';
@@ -20,40 +15,10 @@ import { AlertsMenu } from './AlertsMenu';
 import { PrincipalMenu } from './gov/PrincipalMenu';
 import { SimulationHeaderChip } from './gov/TestHarnessCard';
 import { AskDrawerButton } from '../pages/ask/AskDrawerButton';
+import { SideNav } from './SideNav';
+import { HEADER_HEIGHT, NAV_COLLAPSED_WIDTH, NAV_WIDTH } from './layout';
 
-const TABS = [
-  { path: '/overview', label: 'Overview' },
-  { path: '/conversations', label: 'Conversations' },
-  { path: '/governance', label: 'Governance', gov: true },
-  { path: '/enforcements', label: 'Enforcements' },
-  { path: '/approvals', label: 'Approvals', gov: true },
-  { path: '/agents', label: 'Agents', gov: true },
-  { path: '/lanes', label: 'Lanes', gov: true },
-  { path: '/policies', label: 'Policies', gov: true, icon: <PolicyRoundedIcon fontSize="small" /> },
-  { path: '/posture', label: 'Posture', gov: true, icon: <HealthAndSafetyRoundedIcon fontSize="small" /> },
-  { path: '/incidents', label: 'Incidents', gov: true },
-  { path: '/fleet', label: 'Fleet', gov: true, icon: <RadarRoundedIcon fontSize="small" /> },
-  { path: '/jev', label: 'Jev vs LLM', gov: true, icon: <CompareArrowsRoundedIcon fontSize="small" /> },
-  { path: '/ask', label: 'Ask', gov: true },
-  { path: '/docs', label: 'Docs', icon: <MenuBookRoundedIcon fontSize="small" /> },
-];
-
-/** Pending-approvals count for the nav badge (live via gov.approval WS messages; polls as fallback). */
-function ApprovalsLabel() {
-  const live = useLiveStatus() === 'live';
-  const { data } = usePendingApprovals(live ? 60_000 : 10_000);
-  const n = data?.length ?? 0;
-  return (
-    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
-      Approvals
-      {n > 0 && (
-        <Box component="span" aria-label={`${n} pending`} sx={{ minWidth: 18, height: 18, px: 0.6, borderRadius: 9, bgcolor: 'primary.main', color: 'primary.contrastText', fontSize: 11, fontWeight: 700, lineHeight: '18px', textAlign: 'center' }}>
-          {n > 99 ? '99+' : n}
-        </Box>
-      )}
-    </Box>
-  );
-}
+const COLLAPSED_KEY = 'agentmon.nav.collapsed';
 
 function LiveStatus() {
   const status = useLiveStatus();
@@ -85,21 +50,31 @@ export function AppShell({ children }: { children: ReactNode }) {
 function Shell({ children }: { children: ReactNode }) {
   const { mode, toggle } = useThemeMode();
   const { pathname } = useLocation();
-  const [params] = useSearchParams();
   const openSettings = useOpenSettings();
   const { governance } = useAuth();
   const auth = useAuth();
+  const theme = useTheme();
+  const mobile = useMediaQuery(theme.breakpoints.down('md'), { noSsr: true });
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch { return false; }
+  });
+  const toggleCollapsed = () => setCollapsed(c => {
+    try { localStorage.setItem(COLLAPSED_KEY, c ? '0' : '1'); } catch { /* storage unavailable */ }
+    return !c;
+  });
   const needsLocalAdmin = governance && auth.mode === 'local' && !!auth.principal && !principalHasRole(auth.principal, 'Approver', 'PolicyAdmin');
-  const tabs = TABS.filter(t => !t.gov || governance);
-  const current = tabs.findIndex(t => pathname.startsWith(t.path));
-  const range = params.get('range');
-  const tabHref = (p: string) => (range ? `${p}?range=${range}` : p);
 
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Box component="header" sx={{ px: { xs: 2, md: 3 }, pt: 2, position: 'sticky', top: 0, zIndex: 10, bgcolor: 'background.default', borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <Typography variant="h4" component="h1" sx={{ flex: 1 }}>Agent Activity</Typography>
+      <Box component="header" sx={{ px: { xs: 1.5, md: 2.5 }, height: HEADER_HEIGHT, flexShrink: 0, display: 'flex', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10, bgcolor: 'background.default', borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flex: 1, minWidth: 0 }}>
+          {mobile && (
+            <IconButton aria-label="Open navigation" aria-haspopup="dialog" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)} edge="start">
+              <MenuRoundedIcon />
+            </IconButton>
+          )}
+          <Typography variant="h5" component="h1" sx={{ flex: 1, fontWeight: 700, fontSize: { xs: 18, sm: 20 }, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Agent Activity</Typography>
           <LiveStatus />
           {governance && <SimulationHeaderChip />}
           {needsLocalAdmin && <UnlockAdminHint />}
@@ -115,14 +90,30 @@ function Shell({ children }: { children: ReactNode }) {
           </Tooltip>
           <PrincipalMenu />
         </Stack>
-        <Tabs value={current === -1 ? false : current} sx={{ mt: 0.5 }} aria-label="Sections" variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
-          {tabs.map(t => (
-            <Tab key={t.path} icon={t.icon} iconPosition="start" label={t.path === '/approvals' ? <ApprovalsLabel /> : t.label} component={Link} to={tabHref(t.path)} />
-          ))}
-        </Tabs>
       </Box>
-      <Box component="main" key={pathname.split('/')[1]} sx={{ flex: 1, px: { xs: 2, md: 3 }, py: 2.5, animation: 'am-fade-up 320ms both cubic-bezier(0.05, 0.7, 0.1, 1)' }}>
-        {children}
+      <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {mobile ? (
+          <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} slotProps={{ paper: { sx: { width: NAV_WIDTH + 24, bgcolor: 'background.default' } } }}>
+            <Box component="nav" aria-label="Sections" sx={{ height: '100%' }}>
+              <SideNav governance={governance} onNavigate={() => setDrawerOpen(false)} />
+            </Box>
+          </Drawer>
+        ) : (
+          <Box
+            component="nav"
+            aria-label="Sections"
+            sx={{
+              width: collapsed ? NAV_COLLAPSED_WIDTH : NAV_WIDTH, flexShrink: 0, position: 'sticky', top: HEADER_HEIGHT,
+              height: `calc(100vh - ${HEADER_HEIGHT}px)`, borderRight: '1px solid', borderColor: 'divider',
+              transition: 'width 200ms cubic-bezier(0.2, 0, 0, 1)', overflow: 'hidden',
+            }}
+          >
+            <SideNav governance={governance} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+          </Box>
+        )}
+        <Box component="main" key={pathname.split('/')[1]} sx={{ flex: 1, minWidth: 0, overflowX: 'clip', px: { xs: 2, md: 3 }, py: 2.5, animation: 'am-fade-up 320ms both cubic-bezier(0.05, 0.7, 0.1, 1)' }}>
+          {children}
+        </Box>
       </Box>
     </Box>
   );

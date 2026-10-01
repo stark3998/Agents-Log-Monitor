@@ -252,6 +252,6 @@ describe('fleet helpers', () => {
   it('is linked from the navigation', () => {
     mockFetch({ 'GET /api/gov/approvals': [] });
     renderApp(<AppShell><Box>Body</Box></AppShell>, { route: '/overview', path: '*' });
-    expect(screen.getByRole('tab', { name: 'Fleet' })).toHaveAttribute('href', '/fleet');
+    expect(within(screen.getByRole('navigation', { name: 'Sections' })).getByRole('link', { name: 'Fleet' })).toHaveAttribute('href', '/fleet');
   });
 });

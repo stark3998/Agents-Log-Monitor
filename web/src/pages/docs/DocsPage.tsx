@@ -15,9 +15,11 @@ import { EmptyState } from '../../components/Common';
 import { useAuth } from '../../auth/context';
 import { useDoc, useDocSearch, useDocsIndex, type DocDetail, type DocSearchHit, type DocsIndex } from '../../api/docs';
 import { docRoute, highlightParts, resolveDocLink } from '../../lib/docs';
+import { PageHeader } from '../../components/PageHeader';
+import { HEADER_HEIGHT } from '../../components/layout';
 
 /** Offset below the sticky app header, for sticky side panels and anchor scrolling. */
-const STICKY_TOP = 128;
+const STICKY_TOP = HEADER_HEIGHT + 20;
 
 const docSx = {
   fontSize: 14.5, lineHeight: 1.72,
@@ -137,13 +139,13 @@ function DocsNav({ index, currentId, home }: { index: DocsIndex; currentId: stri
 function DocsHome({ index }: { index: DocsIndex }) {
   return (
     <Stack spacing={3.5} sx={{ maxWidth: 1100 }}>
-      <Box>
-        <Typography variant="h4" component="h2">Documentation</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 720 }}>
+      <PageHeader
+        title="Documentation"
+        description={<>
           {index.count} documents in {index.sections.length} sections, covering architecture, installation, governance, the monitoring fleet and deployment.
           Search with <Box component="kbd" sx={kbdSx}>/</Box> or browse by section. Pages link to each other and list the pages that reference them.
-        </Typography>
-      </Box>
+        </>}
+      />
       {index.sections.map(s => (
         <Box component="section" key={s.title} aria-label={s.title}>
           <Typography variant="h6" component="h3" sx={{ mb: 1.25, fontSize: 16 }}>{s.title}</Typography>

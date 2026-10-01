@@ -22,6 +22,8 @@ import { QueryError, ReasonDialog, RoleIconButton } from '../../components/gov/G
 import { AgentStatusChip } from '../../components/gov/GovChips';
 import { Ellipsis, RelativeTime } from '../../components/Primitives';
 import { fmtNum } from '../../lib/format';
+import { PageHeader } from '../../components/PageHeader';
+import { FILL_HEIGHT } from '../../components/layout';
 
 const STATUS_COPY: Record<AgentAction, { title: string; body: string; confirm: string }> = {
   pause: { title: 'Pause agent', body: 'Kill switch: every tool call from this agent is denied until it is resumed. Running sessions stop at their next action.', confirm: 'Pause agent' },
@@ -179,9 +181,9 @@ export function AgentsPage() {
   ];
 
   return (
-    <Stack spacing={2} sx={{ height: 'calc(100vh - 150px)', minHeight: 480 }}>
+    <Stack spacing={2} sx={{ height: FILL_HEIGHT, minHeight: 600 }}>
+      <PageHeader />
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
-        <Typography variant="h5" component="h2">Agents</Typography>
         <ToggleButtonGroup size="small" exclusive value={filter} aria-label="Filter by status"
           onChange={(_, v) => v && setParams(p => { const n = new URLSearchParams(p); if (v === 'all') n.delete('status'); else n.set('status', v); return n; }, { replace: true })}>
           <ToggleButton value="all">All · {fmtNum(agents.data?.length ?? 0)}</ToggleButton>

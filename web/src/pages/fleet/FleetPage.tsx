@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Box, Stack, Tab, Tabs, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, Stack, Tab, Tabs, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import RadarRoundedIcon from '@mui/icons-material/RadarRounded';
 import { useSearchParams } from 'react-router-dom';
 import { useFleetSummary } from '../../api/fleet';
@@ -8,6 +8,7 @@ import { EmptyState } from '../../components/Common';
 import { QueryError } from '../../components/gov/GovCommon';
 import { DEFAULT_RANGE } from '../../lib/range';
 import { fmtNum } from '../../lib/format';
+import { PageHeader } from '../../components/PageHeader';
 import { FleetSummaryPanel, type SummaryFilterKey } from './FleetSummary';
 import { FleetAlertsPanel, type AlertTableFilters } from './FleetAlertsPanel';
 import { FleetAgentsPanel } from './FleetAgentsPanel';
@@ -73,20 +74,16 @@ export function FleetPage() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'flex-end' } }}>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="h5" component="h2">Fleet</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-            Alerts from the monitoring fleet about Foundry and Copilot Studio agents, mapped to OWASP LLM, OWASP Agentic and MITRE ATLAS.
-          </Typography>
-        </Box>
-        <ToggleButtonGroup size="small" exclusive value={range} aria-label="Time window"
-          onChange={(_, v: string | null) => v && update({ range: v === DEFAULT_RANGE ? null : v })}>
-          {WINDOWS.map(w => <ToggleButton key={w.key} value={w.key} aria-label={w.aria}>{w.label}</ToggleButton>)}
-        </ToggleButtonGroup>
-      </Stack>
+      <PageHeader
+        actions={
+          <ToggleButtonGroup size="small" exclusive value={range} aria-label="Time window"
+            onChange={(_, v: string | null) => v && update({ range: v === DEFAULT_RANGE ? null : v })}>
+            {WINDOWS.map(w => <ToggleButton key={w.key} value={w.key} aria-label={w.aria}>{w.label}</ToggleButton>)}
+          </ToggleButtonGroup>
+        }
+      />
 
-      {summary.isError ? <QueryError error={summary.error} onRetry={() => void summary.refetch()} title="Could not load the fleet summary" />
+      {summary.isError ?  <QueryError error={summary.error} onRetry={() => void summary.refetch()} title="Could not load the fleet summary" />
         : <FleetSummaryPanel summary={summary.data} onFilter={onSummaryFilter} />}
 
       <Box>

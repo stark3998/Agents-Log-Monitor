@@ -16,6 +16,7 @@ import { QueryError, RoleButton } from '../../components/gov/GovCommon';
 import { ApprovalStateChip } from '../../components/gov/GovChips';
 import { RelativeTime } from '../../components/Primitives';
 import { fmtCountdown, useNow } from '../../lib/useNow';
+import { PageHeader } from '../../components/PageHeader';
 
 type Action = 'approve' | 'deny';
 
@@ -157,15 +158,16 @@ export function ApprovalsPage() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-        <Typography variant="h5" component="h2" sx={{ flex: 1 }}>Approvals</Typography>
-        <Tooltip title={live ? 'Live updates via WebSocket' : 'Live updates unavailable — polling every 5s'}>
-          <Typography variant="caption">{live ? 'Live' : 'Polling'}</Typography>
-        </Tooltip>
-        <Button size="small" variant="outlined" onClick={() => setHistory(h => !h)} aria-pressed={history}>{history ? 'Hide history' : 'Show history'}</Button>
-      </Stack>
+      <PageHeader
+        actions={<>
+          <Tooltip title={live ? 'Live updates via WebSocket' : 'Live updates unavailable — polling every 5s'}>
+            <Typography variant="caption">{live ? 'Live' : 'Polling'}</Typography>
+          </Tooltip>
+          <Button size="small" variant="outlined" onClick={() => setHistory(h => !h)} aria-pressed={history}>{history ? 'Hide history' : 'Show history'}</Button>
+        </>}
+      />
 
-      {pending.isError ? <QueryError error={pending.error} onRetry={() => void pending.refetch()} />
+      {pending.isError ?  <QueryError error={pending.error} onRetry={() => void pending.refetch()} />
         : pending.isLoading ? <Stack spacing={1}>{[0, 1, 2].map(i => <Skeleton key={i} variant="rounded" height={96} />)}</Stack>
         : sorted.length === 0 ? (
           <EmptyState icon={<TaskAltRoundedIcon />} title="No pending approvals" body="Actions that a lane routes to a human show up here, soonest to expire first. Teams cards link straight to their request." />
