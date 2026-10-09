@@ -28,10 +28,10 @@ For how the pieces fit together, see [Application architecture](architecture/app
 | Component | Port | Start command | Required? |
 |---|---|---|---|
 | Monitor + governance server (REST API, dashboard, `/hooks/*`, `/v1`, `/mcp`, `/live` WebSocket) | 4317 (`PORT`) | `.\start.ps1` or `npm start` | Yes |
-| Vite dev server for the dashboard (hot reload) | 5173 | `npm run dev:web` | Dev only |
+| Vite dev server for the dashboard (hot reload) | 5173 | `.\start.ps1 -Dev` or `npm run dev:web` | Dev only |
 | MCP server, stdio transport | stdio | `npm run mcp` | Optional |
 | Governance MCP gateway | 4127 (`AGENT_GATEWAY_PORT`) | `npm run gateway` | Optional |
-| Intelligence service (Guardian, lane drafter, chat) | 8000 | `python -m uvicorn agentgov_intel.app:app` | Optional |
+| Intelligence service (Guardian, lane drafter, chat) | 8000 | `.\start.ps1 -Intelligence` or `python -m uvicorn agentgov_intel.app:app` | Optional |
 | Fleet worker (collectors + detectors loop) | none | `agentmon-fleet run` | Optional |
 | Fleet real-time hooks API | 8787 | `agentmon-fleet hooks --port 8787` | Optional |
 | Desktop tray app (wraps the server) | 4317 (`PORT`) | `npm run electron:dev` | Optional, Windows |
@@ -95,9 +95,9 @@ What `install.ps1` does, in order:
 3. **Builds.** Runs `npm run build` (`tsc` → `dist/`, then the Vite build of `web/` → `public/`).
 4. **Wires Claude Code.** Edits `%USERPROFILE%\.claude\settings.json`. It removes existing hook entries whose URL ends in `/hooks/claude-code` or `/ingest/claude-code`, then adds an `http` hook to `http://127.0.0.1:<Port>/hooks/claude-code` for 11 events. `PreToolUse`, `UserPromptSubmit` and `PermissionRequest` get the `-HookTimeoutSec` timeout; the rest get 5 s. An unparseable settings file is copied to `settings.json.bak` first.
 5. **Wires optional surfaces** requested with `-CopilotHooks`, `-CopilotPolicyHooks` or `-VSCodeHooks` (see [section 6](#6-enable-endpoint-agent-hooks)).
-6. **Writes `start.ps1`**, which runs `node dist/server.js` from the repo root.
+6. **Checks for `start.ps1`**, the startup script in the repo root (see [section 5](#5-run-the-monitor-and-governance-server)). The installer no longer generates it.
 
-`install.sh` does the same for Claude Code (`~/.claude/settings.json`) and Copilot CLI, and writes `start.sh` instead of `start.ps1`.
+`install.sh` does the same for Claude Code (`~/.claude/settings.json`) and Copilot CLI, and writes `start.sh` (which runs `node dist/server.js` from the repo root).
 
 | `install.ps1` | `install.sh` | Default | Effect |
 |---|---|---|---|
@@ -213,11 +213,38 @@ CONTENT_SAFETY_ENDPOINT=https://<resource>.cognitiveservices.azure.com
 
 ## 5. Run the monitor and governance server
 
-Build once (skip if you ran the installer), then start:
+On Windows, `start.ps1` runs everything locally without Docker. It checks Node.js, runs `npm install` when
+`node_modules` is missing or older than the lockfile, rebuilds `dist/` and `public/` when their sources changed, then
+starts the server:
+
+```powershell
+.\start.ps1                              # build if needed, run on :4317 in this window (Ctrl+C stops)
+.\start.ps1 -Intelligence -Open          # + Python intelligence service on :8000, open the dashboard
+.\start.ps1 -Dev                         # hot reload: ts-node API on :4317 + Vite on http://127.0.0.1:5173
+.\start.ps1 -Background -Intelligence    # run hidden; logs and process ids in .run\
+.\start.ps1 -Status                      # what's running
+.\start.ps1 -Stop                        # stop everything started by the script
+```
+
+| Switch | Effect |
+|---|---|
+| `-Port <n>` | Monitor port. Default: `PORT` from the environment or `.env`, else `4317`. |
+| `-Intelligence` | Also runs the [intelligence service](#8-intelligence-service-python) (`uvicorn agentgov_intel.app:app`) on `-IntelligencePort` (default `8000`). It creates `intelligence\.venv` with Python 3.12+ and `pip install -e intelligence` on first use (and again when `pyproject.toml` changes), and sets `INTELLIGENCE_URL`, `MONITOR_API_URL` and `MONITOR_MCP_URL` for the processes it starts. |
+| `-Dev` | No build. The API server runs `src/server.ts` with ts-node, and Vite serves the dashboard with hot reload on port 5173, proxying to the API. With `-Intelligence`, uvicorn runs with `--reload`. |
+| `-Background` | Starts the services hidden and returns once they answer their health checks. It prints the local admin link, writes logs to `.run\<service>.log` / `.err.log` and process ids to `.run\pids.json`. |
+| `-Open` | Opens the dashboard in the default browser once it is up. |
+| `-Rebuild` / `-SkipBuild` | Force a full `npm run build`, or never install or build. |
+| `-Restart` | If a previous monitor, Vite or intelligence process still holds a port, stop it first instead of failing. |
+| `-Status` / `-Stop` | Show or stop the services the script started, plus a monitor, Vite or uvicorn process still listening on the ports. |
+
+In the foreground (the default), the monitor logs to the console. If it exits, or you press Ctrl+C, the script stops the
+helper services too. Variables set in your shell override `.env` (for example `$env:PORT = 4400; .\start.ps1`).
+
+Manual equivalent, and macOS/Linux:
 
 ```powershell
 npm run build          # tsc -> dist/, vite -> public/
-.\start.ps1            # or: npm start  (node dist/server.js)
+npm start              # node dist/server.js
 ```
 
 ```bash
@@ -252,6 +279,8 @@ The `[collector]` lines appear only for collectors that are enabled.
 See [security-auth.md](security-auth.md) for the loopback trust model.
 
 ### Development mode
+
+`.\start.ps1 -Dev` starts both in one window. To run them by hand:
 
 ```powershell
 npm run dev            # API server with ts-node on :4317
@@ -396,6 +425,7 @@ AGENT_GATEWAY_ALLOW_ANONYMOUS=true npm run gateway
 ## 8. Intelligence service (Python)
 
 The FastAPI service adds Guardian (incident triage), the AI lane drafter and "Ask the monitor" chat. It reads the repo-root `.env`.
+On Windows, `.\start.ps1 -Intelligence` sets it up and runs it next to the monitor. To do it by hand:
 
 ```powershell
 cd intelligence

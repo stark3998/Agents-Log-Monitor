@@ -90,7 +90,7 @@ SDK, and Azure CLI for cloud sources. Full instructions: **[Installation](docs/i
 # Monitor server + dashboard + endpoint governance
 Copy-Item .env.example .env        # one .env configures every component (optional for a local run)
 .\install.ps1                      # npm install + build, then wires Claude Code hooks (-CopilotHooks / -VSCodeHooks for more)
-.\start.ps1                        # → http://127.0.0.1:4317
+.\start.ps1                        # → http://127.0.0.1:4317 (-Intelligence, -Dev, -Background; see .\start.ps1 -?)
 ```
 
 On macOS/Linux use `./install.sh` (Claude Code and Copilot CLI hooks). To build without touching any agent hooks, run

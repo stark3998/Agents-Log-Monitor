@@ -24,3 +24,5 @@ fleet-jev-shadow.jsonl
 
 # local service logs
 monitor-server.*
+# start.ps1 logs and process ids
+.run/

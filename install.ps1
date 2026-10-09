@@ -286,18 +286,16 @@ if ($CopilotHooks) { Install-CopilotUserHooks }
 if ($CopilotPolicyHooks) { Install-CopilotPolicyHooks }
 if ($VSCodeHooks) { Install-VSCodeHooks }
 
-Write-Step "Creating start.ps1"
-$startLines = @(
-  "# Start Agent Monitor on port $Port",
-  'Set-Location "$PSScriptRoot"',
-  "node dist/server.js"
-)
-Set-Content (Join-Path $ScriptDir "start.ps1") ($startLines -join "`r`n") -Encoding UTF8
-Write-Ok "start.ps1 written."
+Write-Step "Checking start.ps1"
+if (Test-Path (Join-Path $ScriptDir "start.ps1")) {
+  Write-Ok "start.ps1 is present (run .\start.ps1 -? for options)."
+} else {
+  Write-Warn "start.ps1 is missing; restore it from the repository, or run 'npm start'."
+}
 
 Write-Host ""
 Write-Host "Installation complete." -ForegroundColor Green
-Write-Host "  Start the monitor:  .\start.ps1"
+Write-Host "  Start the monitor:  .\start.ps1        (add -Intelligence, -Dev, -Background, -Open; see .\start.ps1 -?)"
 Write-Host "  Local URL:           http://127.0.0.1:$Port/"
 Write-Host "  Claude hook URL:    $ClaudeHookUrl"
 Write-Host "  Fail mode:          $FailMode (forwarder command hooks)"
